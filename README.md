@@ -1,4 +1,4 @@
-# Memeorr Indexer
+# Agents.fun Base indexer
 
 A [Ponder](https://ponder.sh) indexer for tracking Memeorr contract events and building a GraphQL API.
 
