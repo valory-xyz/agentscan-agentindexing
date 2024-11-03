@@ -14,14 +14,23 @@ export default createConfig({
       chainId: 8453,
       transport: http(process.env.PONDER_RPC_URL_8453),
     },
+    celo: {
+      chainId: 42220,
+      transport: http(process.env.PONDER_RPC_URL_42220),
+    },
   },
   contracts: {
-    Meme: {
+    MemeBase: {
       network: "base",
       abi: MemeAbi,
       address: "0x42156841253f428cB644Ea1230d4FdDFb70F8891",
       startBlock: 21757872,
-      includeCallTraces: true,
+    },
+    MemeCelo: {
+      network: "celo",
+      abi: MemeAbi,
+      address: "0x42156841253f428cB644Ea1230d4FdDFb70F8891",
+      startBlock: 28527007,
     },
   },
 });

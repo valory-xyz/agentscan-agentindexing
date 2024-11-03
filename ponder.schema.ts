@@ -3,6 +3,7 @@ import { createSchema } from "@ponder/core";
 export default createSchema((p) => ({
   CollectEvent: p.createTable({
     id: p.string(),
+    chain: p.string(),
     hearter: p.string(),
     memeToken: p.string(),
     allocation: p.bigint(),
@@ -11,6 +12,7 @@ export default createSchema((p) => ({
   }),
   HeartEvent: p.createTable({
     id: p.string(),
+    chain: p.string(),
     hearter: p.string(),
     memeToken: p.string(),
     amount: p.bigint(),
@@ -19,6 +21,7 @@ export default createSchema((p) => ({
   }),
   OLASJourneyToAscendanceEvent: p.createTable({
     id: p.string(),
+    chain: p.string(),
     olas: p.string(),
     amount: p.bigint(),
     timestamp: p.int(),
@@ -26,6 +29,7 @@ export default createSchema((p) => ({
   }),
   PurgeEvent: p.createTable({
     id: p.string(),
+    chain: p.string(),
     memeToken: p.string(),
     remainingAmount: p.bigint(),
     timestamp: p.int(),
@@ -33,6 +37,7 @@ export default createSchema((p) => ({
   }),
   SummonEvent: p.createTable({
     id: p.string(),
+    chain: p.string(),
     summoner: p.string(),
     memeToken: p.string(),
     nativeTokenContributed: p.bigint(),
@@ -41,6 +46,7 @@ export default createSchema((p) => ({
   }),
   UnleashEvent: p.createTable({
     id: p.string(),
+    chain: p.string(),
     unleasher: p.string(),
     memeToken: p.string(),
     lpPairAddress: p.string(),
@@ -51,6 +57,7 @@ export default createSchema((p) => ({
   }),
   MemeToken: p.createTable({
     id: p.string(),
+    chain: p.string(),
     owner: p.string(),
     lpPairAddress: p.string(),
     liquidity: p.bigint(),
