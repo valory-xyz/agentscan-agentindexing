@@ -81,6 +81,7 @@ ponder.on("Meme:Unleashed", async ({ event, context }) => {
       liquidity: event.args.liquidity,
       burnPercentageOfStable: event.args.burnPercentageOfStable,
       timestamp: Number(event.block.timestamp),
+      blockNumber: Number(event.block.number),
     },
   });
 });

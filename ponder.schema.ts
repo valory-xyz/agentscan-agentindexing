@@ -7,6 +7,7 @@ export default createSchema((p) => ({
     memeToken: p.string(),
     allocation: p.bigint(),
     timestamp: p.int(),
+    blockNumber: p.int(),
   }),
   HeartEvent: p.createTable({
     id: p.string(),
@@ -14,18 +15,21 @@ export default createSchema((p) => ({
     memeToken: p.string(),
     amount: p.bigint(),
     timestamp: p.int(),
+    blockNumber: p.int(),
   }),
   OLASJourneyToAscendanceEvent: p.createTable({
     id: p.string(),
     olas: p.string(),
     amount: p.bigint(),
     timestamp: p.int(),
+    blockNumber: p.int(),
   }),
   PurgeEvent: p.createTable({
     id: p.string(),
     memeToken: p.string(),
     remainingAmount: p.bigint(),
     timestamp: p.int(),
+    blockNumber: p.int(),
   }),
   SummonEvent: p.createTable({
     id: p.string(),
@@ -33,6 +37,7 @@ export default createSchema((p) => ({
     memeToken: p.string(),
     nativeTokenContributed: p.bigint(),
     timestamp: p.int(),
+    blockNumber: p.int(),
   }),
   UnleashEvent: p.createTable({
     id: p.string(),
@@ -42,5 +47,6 @@ export default createSchema((p) => ({
     liquidity: p.bigint(),
     burnPercentageOfStable: p.bigint(),
     timestamp: p.int(),
+    blockNumber: p.int(),
   }),
 }));
