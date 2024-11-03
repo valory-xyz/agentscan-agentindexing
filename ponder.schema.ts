@@ -49,4 +49,14 @@ export default createSchema((p) => ({
     timestamp: p.int(),
     blockNumber: p.int(),
   }),
+  MemeToken: p.createTable({
+    id: p.string(),
+    owner: p.string(),
+    lpPairAddress: p.string(),
+    liquidity: p.bigint(),
+    heartCount: p.bigint(),
+    isUnleashed: p.boolean(),
+    timestamp: p.int(),
+    blockNumber: p.int(),
+  }),
 }));

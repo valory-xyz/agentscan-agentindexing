@@ -21,6 +21,7 @@ export default createConfig({
       abi: MemeAbi,
       address: "0x42156841253f428cB644Ea1230d4FdDFb70F8891",
       startBlock: 21757872,
+      includeCallTraces: true,
     },
   },
 });
