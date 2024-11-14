@@ -35,7 +35,7 @@ const CONTRACT_NAMES = [
   "OptimismRegistry",
   "BaseRegistry",
   "CeloRegistry",
-  "ModeRegistry",
+  // "ModeRegistry",
 ] as const;
 
 // Create event handlers for each contract
