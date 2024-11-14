@@ -136,6 +136,18 @@ CONTRACT_NAMES.forEach((contractName) => {
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
     });
+    console.log("deploying service", event.args.serviceId.toString());
+    try {
+      await context.db
+        .update(Service, {
+          id: createChainScopedId(chain, event.args.serviceId.toString()),
+        })
+        .set({
+          state: "DEPLOYED",
+        });
+    } catch (e) {
+      console.log("error", e);
+    }
   });
 
   ponder.on(
@@ -169,17 +181,6 @@ CONTRACT_NAMES.forEach((contractName) => {
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
     });
-    const agentData = {
-      type: "agent" as const,
-      id: createChainScopedId(chain, event.log.id),
-      chain,
-      serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
-      operator: event.args.operator,
-      agentId: Number(event.args.agentId),
-      instance: event.args.agentInstance,
-      blockNumber: Number(event.block.number),
-      timestamp: Number(event.block.timestamp),
-    };
   });
 
   ponder.on(`${contractName}:OperatorSlashed`, async ({ event, context }) => {
