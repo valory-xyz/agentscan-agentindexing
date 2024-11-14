@@ -1,10 +1,16 @@
-import type { Hex } from "viem";
-import { fromHex } from "viem";
-
 import { ponder } from "@/generated";
 
-import { FileStoreFrontendAbi } from "../abis/FileStoreFrontendAbi";
 import axios from "axios";
+
+import {
+  ServiceRegistrationEvent,
+  ServiceDeploymentEvent,
+  ServiceTerminationEvent,
+  SlashEvent,
+  Service,
+  AgentInstance,
+  OperatorBalance,
+} from "./../ponder.schema";
 
 const parseJson = (encodedJson: string, defaultValue: any = null) => {
   try {
@@ -38,11 +44,13 @@ const CONTRACT_NAMES = [
   // "ModeRegistry",
 ] as const;
 
+const WEBHOOK_URL = process.env.WEBHOOK_URL || "";
+
 // Create event handlers for each contract
 CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
-    const serviceId = event.args.serviceId.toString();
+    const serviceId = event.args.serviceId.toString().toLowerCase();
 
     const metadataPrefix = "f01701220";
     const finishedConfigHash = event.args.configHash.slice(2);
@@ -55,7 +63,6 @@ CONTRACT_NAMES.forEach((contractName) => {
       const metadata = await axios.get(tokenURI);
       metadataJson = metadata.data;
 
-      // Transform image URL if it exists and matches the specified format
       if (metadataJson.image && metadataJson.image.startsWith("ipfs://")) {
         metadataJson.image = metadataJson.image.replace(
           "ipfs://",
@@ -75,49 +82,59 @@ CONTRACT_NAMES.forEach((contractName) => {
       console.log("error", e);
     }
 
-    await context.db.ServiceRegistrationEvent.create({
+    await context.db.insert(ServiceRegistrationEvent).values({
       id: createChainScopedId(chain, event.log.id),
-      data: {
-        chain,
-        serviceId,
-        configHash: event.args.configHash,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      },
+      chain,
+      serviceId: createChainScopedId(chain, serviceId),
+      configHash: event.args.configHash,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
     });
 
-    await context.db.Service.create({
+    await context.db.insert(Service).values({
       id: createChainScopedId(chain, serviceId),
-      data: {
-        // metadata: metadataJson,
-        chain,
-        owner: event.transaction.from,
-        securityDeposit: 0n,
-        multisig: "0x",
-        configHash: event.args.configHash,
-        threshold: 0,
-        maxNumAgentInstances: 0,
-        numAgentInstances: 0,
-        state: 0,
-        blockNumber: Number(event.block.number),
-        metadata: metadataJson,
-        timestamp: Number(event.block.timestamp),
-      },
+      chain,
+      owner: event.transaction.from,
+      securityDeposit: 0n,
+      multisig: "0x",
+      configHash: event.args.configHash,
+      threshold: 0,
+      maxNumAgentInstances: 0,
+      numAgentInstances: 0,
+      state: "UNREGISTERED",
+      blockNumber: Number(event.block.number),
+      metadata: metadataJson,
+      timestamp: Number(event.block.timestamp),
     });
+
+    const serviceData = {
+      type: "service" as const,
+      id: createChainScopedId(chain, serviceId),
+      chain,
+      owner: event.transaction.from,
+      securityDeposit: 0n,
+      multisig: "0x",
+      configHash: event.args.configHash,
+      threshold: 0,
+      maxNumAgentInstances: 0,
+      numAgentInstances: 0,
+      state: "UNREGISTERED",
+      blockNumber: Number(event.block.number),
+      metadata: metadataJson,
+      timestamp: Number(event.block.timestamp),
+    };
   });
 
   ponder.on(`${contractName}:DeployService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
 
-    await context.db.ServiceDeploymentEvent.create({
+    await context.db.insert(ServiceDeploymentEvent).values({
       id: createChainScopedId(chain, event.log.id),
-      data: {
-        chain,
-        serviceId: event.args.serviceId.toString(),
-        multisig: "0x",
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      },
+      chain,
+      serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
+      multisig: "0x",
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
     });
   });
 
@@ -127,14 +144,11 @@ CONTRACT_NAMES.forEach((contractName) => {
       const chain = getChainName(contractName);
       const serviceId = createChainScopedId(
         chain,
-        event.args.serviceId.toString()
+        event.args.serviceId.toString().toLowerCase()
       );
       try {
-        await context.db.Service.update({
-          id: serviceId,
-          data: {
-            multisig: event.args.multisig,
-          },
+        await context.db.update(Service, { id: serviceId }).set({
+          multisig: event.args.multisig,
         });
       } catch (e) {
         console.log("error", e);
@@ -145,33 +159,40 @@ CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:RegisterInstance`, async ({ event, context }) => {
     const chain = getChainName(contractName);
 
-    await context.db.AgentInstance.create({
+    await context.db.insert(AgentInstance).values({
       id: createChainScopedId(chain, event.log.id),
-      data: {
-        chain,
-        serviceId: event.args.serviceId.toString(),
-        operator: event.args.operator,
-        agentId: Number(event.args.agentId),
-        instance: event.args.agentInstance,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      },
+      chain,
+      serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
+      operator: event.args.operator,
+      agentId: Number(event.args.agentId),
+      instance: event.args.agentInstance,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
     });
+    const agentData = {
+      type: "agent" as const,
+      id: createChainScopedId(chain, event.log.id),
+      chain,
+      serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
+      operator: event.args.operator,
+      agentId: Number(event.args.agentId),
+      instance: event.args.agentInstance,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
+    };
   });
 
   ponder.on(`${contractName}:OperatorSlashed`, async ({ event, context }) => {
     const chain = getChainName(contractName);
 
-    await context.db.SlashEvent.create({
+    await context.db.insert(SlashEvent).values({
       id: createChainScopedId(chain, event.log.id),
-      data: {
-        chain,
-        operator: event.args.operator,
-        serviceId: event.args.serviceId.toString(),
-        amount: event.args.amount,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      },
+      chain,
+      operator: event.args.operator,
+      serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
+      amount: event.args.amount,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
     });
   });
 
@@ -179,24 +200,23 @@ CONTRACT_NAMES.forEach((contractName) => {
     const chain = getChainName(contractName);
     const serviceId = event.args.serviceId.toString();
 
-    await context.db.ServiceTerminationEvent.create({
+    await context.db.insert(ServiceTerminationEvent).values({
       id: createChainScopedId(chain, event.log.id),
-      data: {
-        chain,
-        serviceId,
-        refund: 0n,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      },
+      chain,
+      serviceId: createChainScopedId(chain, serviceId),
+      refund: 0n,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
     });
 
     try {
-      await context.db.Service.update({
-        id: createChainScopedId(chain, serviceId),
-        data: {
-          state: 3,
-        },
-      });
+      await context.db
+        .update(Service, {
+          id: createChainScopedId(chain, serviceId),
+        })
+        .set({
+          state: "TERMINATED",
+        });
     } catch (e) {
       console.log("error", e);
     }
@@ -209,12 +229,13 @@ CONTRACT_NAMES.forEach((contractName) => {
       event.args.serviceId.toString()
     );
     try {
-      await context.db.Service.update({
-        id: serviceId,
-        data: {
+      await context.db
+        .update(Service, {
+          id: serviceId,
+        })
+        .set({
           configHash: event.args.configHash,
-        },
-      });
+        });
     } catch (e) {
       console.log("error", e);
     }
@@ -224,25 +245,28 @@ CONTRACT_NAMES.forEach((contractName) => {
     const chain = getChainName(contractName);
     const operatorBalanceId = `${event.args.sender}-${event.log.address}`;
 
-    const existingBalance = await context.db.OperatorBalance.findUnique({
+    const existingBalance = await context.db.find(OperatorBalance, {
       id: createChainScopedId(chain, operatorBalanceId),
     });
 
-    await context.db.OperatorBalance.upsert({
-      id: createChainScopedId(chain, operatorBalanceId),
-      create: {
+    if (existingBalance) {
+      await context.db
+        .update(OperatorBalance, {
+          id: createChainScopedId(chain, operatorBalanceId),
+        })
+        .set({
+          balance: existingBalance.balance + event.args.amount,
+        });
+    } else {
+      await context.db.insert(OperatorBalance).values({
+        id: createChainScopedId(chain, operatorBalanceId),
         chain,
         operator: event.args.sender,
         serviceId: event.log.address,
         balance: event.args.amount,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
-      },
-      update: {
-        balance: (existingBalance?.balance ?? 0n) + event.args.amount,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      },
-    });
+      });
+    }
   });
 });
