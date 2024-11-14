@@ -1,16 +1,6 @@
 # Agents.fun Base indexer
 
-A [Ponder](https://ponder.sh) indexer for tracking Memeorr contract events and building a GraphQL API.
-
-## Overview
-
-This indexer tracks the following Memeorr events:
-- Collected
-- Hearted  
-- OLASJourneyToAscendance
-- Purged
-- Summoned
-- Unleashed
+A [Ponder](https://ponder.sh) indexer for tracking agent and service contract events on top of olas
 
 The indexed data is exposed via a GraphQL API that can be queried to analyze Memeorr activity.
 
