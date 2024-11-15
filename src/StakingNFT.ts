@@ -40,7 +40,7 @@ const CONTRACT_NAMES = [
   "ArbitrumRegistry",
   "OptimismRegistry",
   "BaseRegistry",
-  "CeloRegistry",
+  // "CeloRegistry",
   // "ModeRegistry",
 ] as const;
 

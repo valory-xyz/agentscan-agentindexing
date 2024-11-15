@@ -29,10 +29,10 @@ export default createConfig({
       chainId: 8453,
       transport: http(process.env.PONDER_RPC_URL_8453),
     },
-    celo: {
-      chainId: 42220,
-      transport: http(process.env.PONDER_RPC_URL_42220),
-    },
+    // celo: {
+    //   chainId: 42220,
+    //   transport: http(process.env.PONDER_RPC_URL_42220),
+    // },
     // mode: {
     //   chainId: 34443,
     //   transport: http(process.env.PONDER_RPC_URL_34443),
@@ -76,12 +76,12 @@ export default createConfig({
       address: "0x3C1fF68f5aa342D296d4DEe4Bb1cACCA912D95fE",
       startBlock: 10827380,
     },
-    CeloRegistry: {
-      network: "celo",
-      abi: StakingABI,
-      address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-      startBlock: 24205712,
-    },
+    // CeloRegistry: {
+    //   network: "celo",
+    //   abi: StakingABI,
+    //   address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
+    //   startBlock: 24205712,
+    // },
     // ModeRegistry: {
     //   network: "mode",
     //   abi: StakingABI,
