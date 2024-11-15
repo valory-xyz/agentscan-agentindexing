@@ -128,6 +128,8 @@ CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:DeployService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
 
+    const serviceId = event.args.serviceId.toString().toLowerCase();
+
     await context.db.insert(ServiceDeploymentEvent).values({
       id: createChainScopedId(chain, event.log.id),
       chain,
@@ -140,7 +142,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     try {
       await context.db
         .update(Service, {
-          id: createChainScopedId(chain, event.args.serviceId.toString()),
+          id: createChainScopedId(chain, serviceId),
         })
         .set({
           state: "DEPLOYED",
@@ -171,8 +173,12 @@ CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:RegisterInstance`, async ({ event, context }) => {
     const chain = getChainName(contractName);
 
+    const instanceId = createChainScopedId(
+      chain,
+      event.args.agentInstance.toLowerCase()
+    );
     await context.db.insert(AgentInstance).values({
-      id: createChainScopedId(chain, event.log.id),
+      id: instanceId,
       chain,
       serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
       operator: event.args.operator,
