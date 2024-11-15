@@ -177,16 +177,20 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.agentInstance.toLowerCase()
     );
-    await context.db.insert(AgentInstance).values({
-      id: instanceId,
-      chain,
-      serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
-      operator: event.args.operator,
-      agentId: Number(event.args.agentId),
-      instance: event.args.agentInstance,
-      blockNumber: Number(event.block.number),
-      timestamp: Number(event.block.timestamp),
-    });
+    try {
+      await context.db.insert(AgentInstance).values({
+        id: instanceId,
+        chain,
+        serviceId: createChainScopedId(chain, event.args.serviceId.toString()),
+        operator: event.args.operator,
+        agentId: Number(event.args.agentId),
+        instance: event.args.agentInstance,
+        blockNumber: Number(event.block.number),
+        timestamp: Number(event.block.timestamp),
+      });
+    } catch (e) {
+      console.log("error", e);
+    }
   });
 
   ponder.on(`${contractName}:OperatorSlashed`, async ({ event, context }) => {
