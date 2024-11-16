@@ -23,6 +23,7 @@ export const Service = onchainTable("service", (t) => ({
   blockNumber: t.integer().notNull(),
   timestamp: t.integer().notNull(),
   metadata: t.json(),
+  chainId: t.integer().notNull(),
 }));
 
 export const ServiceRelations = relations(Service, ({ many }) => ({
@@ -40,6 +41,7 @@ export const AgentInstance = onchainTable(
     instance: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
+    chainId: t.integer().notNull(),
   }),
   (table) => ({
     serviceIdx: index().on(table.serviceId),

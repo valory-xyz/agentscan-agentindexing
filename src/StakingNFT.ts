@@ -46,6 +46,26 @@ const CONTRACT_NAMES = [
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL || "";
 
+// Helper to get chainId from chain name
+const getChainId = (chain: string): number => {
+  switch (chain.toLowerCase()) {
+    case "mainnet":
+      return 1;
+    case "polygon":
+      return 137;
+    case "gnosis":
+      return 100;
+    case "arbitrum":
+      return 42161;
+    case "optimism":
+      return 10;
+    case "base":
+      return 8453;
+    default:
+      return 1; // Default to mainnet
+  }
+};
+
 // Create event handlers for each contract
 CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
@@ -103,6 +123,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       numAgentInstances: 0,
       state: "UNREGISTERED",
       blockNumber: Number(event.block.number),
+      chainId: getChainId(chain),
       metadata: metadataJson,
       timestamp: Number(event.block.timestamp),
     });
@@ -187,6 +208,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         instance: event.args.agentInstance,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
+        chainId: getChainId(chain),
       });
     } catch (e) {
       console.log("error", e);
