@@ -2,6 +2,8 @@ import { createConfig } from "@ponder/core";
 import { http } from "viem";
 
 import { StakingABI } from "./abis/StakingABI";
+import { AgentRegistryABI } from "./abis/AgentRegistry";
+import { ComponentRegistryABI } from "./abis/ComponentRegistry";
 
 export default createConfig({
   networks: {
@@ -76,6 +78,19 @@ export default createConfig({
       address: "0x3C1fF68f5aa342D296d4DEe4Bb1cACCA912D95fE",
       startBlock: 10827380,
     },
+    MainnetAgentRegistry: {
+      network: "mainnet",
+      abi: AgentRegistryABI,
+      address: "0x2F1f7D38e4772884b88f3eCd8B6b9faCdC319112",
+      startBlock: 15178299,
+    },
+    MainnetComponentRegistry: {
+      network: "mainnet",
+      abi: ComponentRegistryABI,
+      address: "0x15bd56669F57192a97dF41A2aa8f4403e9491776",
+      startBlock: 15178253,
+    },
+
     // CeloRegistry: {
     //   network: "celo",
     //   abi: StakingABI,
