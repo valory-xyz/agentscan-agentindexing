@@ -35,7 +35,6 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
       // Create new agent
       await context.db.insert(Agent).values({
         id: agentId,
-        serviceId: null,
         operator: null,
         owner: event.transaction.from,
         agentId: Number(agentId),
