@@ -50,7 +50,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Add this new helper function
 export const fetchAndTransformMetadata = async (
   configHash: string,
-  maxRetries = 5
+  maxRetries = 3
 ) => {
   const metadataPrefix = "f01701220";
   const finishedConfigHash = configHash.slice(2);
