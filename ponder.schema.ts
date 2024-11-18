@@ -46,12 +46,14 @@ export const Agent = onchainTable(
     metadataHash: t.text(),
     metadataURI: t.text(),
     packageHash: t.text(),
+    operator: t.text(),
   }),
   (table) => ({
     idx: index().on(table.id),
     instanceIdx: index().on(table.instance),
     packageHashIdx: index().on(table.packageHash),
     metadataHashIdx: index().on(table.metadataHash),
+    operatorIdx: index().on(table.operator),
   })
 );
 

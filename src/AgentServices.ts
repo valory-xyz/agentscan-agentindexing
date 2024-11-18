@@ -1,6 +1,6 @@
 import { ponder } from "@/generated";
 
-import { Service, Agent, Component } from "../ponder.schema";
+import { Service, Agent, Component, ServiceAgent } from "../ponder.schema";
 import {
   CONTRACT_NAMES,
   createChainScopedId,
@@ -156,6 +156,53 @@ ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
   }
 });
 
+// Add UpdateUnitHash handler for AgentRegistry
+ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
+  const agentId = event.args.unitId.toString();
+  const metadataJson = await fetchAndTransformMetadata(event.args.unitHash);
+
+  try {
+    await context.db
+      .update(Agent, {
+        id: agentId,
+      })
+      .set({
+        metadata: metadataJson,
+        metadataHash: event.args.unitHash,
+        packageHash: metadataJson?.packageHash,
+        blockNumber: Number(event.block.number),
+        timestamp: Number(event.block.timestamp),
+      });
+  } catch (e) {
+    console.log("error in UpdateUnitHash handler for Agent:", e);
+  }
+});
+
+// Add UpdateUnitHash handler for ComponentRegistry
+ponder.on(
+  `MainnetComponentRegistry:UpdateUnitHash`,
+  async ({ event, context }) => {
+    const componentId = event.args.unitId.toString();
+    const metadataJson = await fetchAndTransformMetadata(event.args.unitHash);
+
+    try {
+      await context.db
+        .update(Component, {
+          id: componentId,
+        })
+        .set({
+          metadata: metadataJson,
+          metadataHash: event.args.unitHash,
+          packageHash: metadataJson?.packageHash,
+          blockNumber: Number(event.block.number),
+          timestamp: Number(event.block.timestamp),
+        });
+    } catch (e) {
+      console.log("error in UpdateUnitHash handler for Component:", e);
+    }
+  }
+);
+
 // Create event handlers for each contract
 CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
@@ -225,10 +272,47 @@ CONTRACT_NAMES.forEach((contractName) => {
     }
   );
 
-  ponder.on(
-    `${contractName}:RegisterInstance`,
-    async ({ event, context }) => {}
-  );
+  ponder.on(`${contractName}:RegisterInstance`, async ({ event, context }) => {
+    const chain = getChainName(contractName);
+    const serviceId = createChainScopedId(
+      chain,
+      event.args.serviceId.toString()
+    );
+    const agentId = event.args.agentId.toString();
+
+    try {
+      // Update the agent with instance and operator information
+      await context.db
+        .update(Agent, {
+          id: agentId,
+        })
+        .set({
+          operator: event.args.operator,
+          instance: event.args.agentInstance,
+        });
+
+      // Update the service's numAgentInstances
+      const service = await context.db.find(Service, { id: serviceId });
+      if (service) {
+        await context.db
+          .update(Service, {
+            id: serviceId,
+          })
+          .set({
+            state: "REGISTERED",
+          });
+      }
+      const id = createChainScopedId(chain, serviceId + "-" + agentId);
+      //create a service_agent relation
+      await context.db.insert(ServiceAgent).values({
+        id,
+        serviceId,
+        agentId,
+      });
+    } catch (e) {
+      console.log("error in RegisterInstance handler:", e);
+    }
+  });
 
   ponder.on(`${contractName}:TerminateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
