@@ -276,7 +276,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     const chain = getChainName(contractName);
     const serviceId = createChainScopedId(
       chain,
-      event.args.serviceId.toString()
+      event.args.serviceId.toString().toLowerCase()
     );
     const agentId = event.args.agentId.toString();
 
@@ -294,9 +294,10 @@ CONTRACT_NAMES.forEach((contractName) => {
       // Update the service's numAgentInstances
       const service = await context.db.find(Service, { id: serviceId });
       if (service) {
+        const id = createChainScopedId(chain, serviceId);
         await context.db
           .update(Service, {
-            id: serviceId,
+            id,
           })
           .set({
             state: "REGISTERED",
@@ -316,7 +317,10 @@ CONTRACT_NAMES.forEach((contractName) => {
 
   ponder.on(`${contractName}:TerminateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
-    const serviceId = event.args.serviceId.toString();
+    const serviceId = createChainScopedId(
+      chain,
+      event.args.serviceId.toString().toLowerCase()
+    );
 
     try {
       await context.db
