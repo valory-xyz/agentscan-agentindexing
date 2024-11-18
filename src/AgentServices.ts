@@ -302,10 +302,10 @@ CONTRACT_NAMES.forEach((contractName) => {
             state: "REGISTERED",
           });
       }
-      const id = createChainScopedId(chain, serviceId + "-" + agentId);
+
       //create a service_agent relation
       await context.db.insert(ServiceAgent).values({
-        id,
+        id: `${serviceId}-${agentId}`,
         serviceId,
         agentId,
       });
