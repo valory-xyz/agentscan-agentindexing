@@ -26,6 +26,7 @@ export const Service = onchainTable(
     chainId: t.integer().notNull(),
     packageHash: t.text(),
     metadataHash: t.text(),
+    metadataURI: t.text(),
   }),
   (table) => ({
     idx: index().on(table.id),

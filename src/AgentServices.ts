@@ -17,7 +17,6 @@ import {
   getChainId,
   getChainName,
 } from "../utils";
-import { AgentRegistryABI } from "../abis/AgentRegistry";
 
 // Memoize the metadata fetching to prevent duplicate requests
 const memoizedFetchMetadata = memoize(
@@ -46,6 +45,7 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
         timestamp: Number(event.block.timestamp),
         packageHash: metadataJson?.packageHash,
         metadataHash: event.args.unitHash,
+        metadataURI: metadataJson?.metadataURI,
       });
     } else {
       await context.db.insert(Agent).values({
@@ -57,6 +57,7 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
         packageHash: metadataJson?.packageHash,
+        metadataURI: metadataJson?.metadataURI,
       });
     }
     //call
@@ -150,6 +151,7 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
         timestamp: Number(event.block.timestamp),
         packageHash: metadataJson?.packageHash,
         metadataHash: event.args.unitHash,
+        metadataURI: metadataJson?.metadataURI,
       });
     } else {
       await context.db.insert(Component).values({
@@ -160,6 +162,7 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
         packageHash: metadataJson?.packageHash,
+        metadataURI: metadataJson?.metadataURI,
       });
     }
   } catch (e) {
@@ -250,6 +253,7 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
       packageHash: metadataJson?.packageHash,
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
+      metadataURI: metadataJson?.metadataURI,
     });
   } catch (e) {
     console.error("Error in UpdateUnitHash handler for Agent:", e);
@@ -270,6 +274,7 @@ ponder.on(
         packageHash: metadataJson?.packageHash,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
+        metadataURI: metadataJson?.metadataURI,
       });
     } catch (e) {
       console.error("Error in UpdateUnitHash handler for Component:", e);
@@ -302,6 +307,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         timestamp: Number(event.block.timestamp),
         metadataHash: event.args.configHash,
         packageHash,
+        metadataURI: metadataJson?.metadataURI,
       });
     } catch (e) {
       //if the service already exists, update it
@@ -311,6 +317,7 @@ CONTRACT_NAMES.forEach((contractName) => {
           metadata: metadataJson,
           metadataHash: event.args.configHash,
           packageHash,
+          metadataURI: metadataJson?.metadataURI,
         });
       console.error("Error in CreateService handler:", e);
     }
@@ -421,6 +428,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         metadata: metadataJson,
         metadataHash: event.args.configHash,
         packageHash,
+        metadataURI: metadataJson?.metadataURI,
       });
     } catch (e) {
       console.error("Error in UpdateService handler:", e);
