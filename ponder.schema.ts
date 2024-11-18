@@ -111,8 +111,38 @@ export const ComponentAgent = onchainTable("component_agent", (t) => ({
   agentId: t.text().notNull(),
 }));
 
+export const ComponentDependency = onchainTable(
+  "component_dependency",
+  (t) => ({
+    id: t.text().primaryKey(),
+    componentId: t.text().notNull(),
+    dependencyId: t.text().notNull(),
+  }),
+  (table) => ({
+    idx: index().on(table.id),
+    componentIdx: index().on(table.componentId),
+    dependencyIdx: index().on(table.dependencyId),
+  })
+);
+
+export const ComponentDependencyRelations = relations(
+  ComponentDependency,
+  ({ one }) => ({
+    component: one(Component, {
+      fields: [ComponentDependency.componentId],
+      references: [Component.id],
+    }),
+    dependency: one(Component, {
+      fields: [ComponentDependency.dependencyId],
+      references: [Component.id],
+    }),
+  })
+);
+
 export const ComponentRelations = relations(Component, ({ many }) => ({
   agentComponents: many(ComponentAgent),
+  dependencies: many(ComponentDependency, { relationName: "component" }),
+  dependents: many(ComponentDependency, { relationName: "dependency" }),
 }));
 
 export const AgentComponentRelations = relations(Agent, ({ many }) => ({

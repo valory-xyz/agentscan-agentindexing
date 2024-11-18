@@ -2,6 +2,8 @@ import axios, { AxiosInstance, AxiosResponse } from "axios";
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
+import openai from "./openai";
+import pool from "./postgres";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
@@ -63,30 +65,62 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
   }
 }
 
+async function generateEmbeddingWithRetry(
+  text: string,
+  maxRetries: number = 3,
+  initialDelay: number = 1000
+): Promise<number[] | undefined> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const embeddingResponse = await openai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: text,
+        dimensions: 512,
+      });
+
+      return embeddingResponse.data?.[0]?.embedding;
+    } catch (error: any) {
+      if (attempt === maxRetries) {
+        console.error(
+          "Failed all retry attempts for embedding generation:",
+          error
+        );
+        throw error;
+      }
+
+      // Calculate delay with exponential backoff and jitter
+      const delay =
+        initialDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+      console.log(
+        `Embedding generation attempt ${attempt} failed. Retrying in ${delay}ms...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw new Error("Failed to generate embedding after all retries");
+}
+
 async function downloadIPFSFile(
   ipfsHash: string,
   fileName: string,
-  outputDir: string = "./downloads"
+  outputDir: string = "./downloads",
+  componentId: string
 ): Promise<string> {
   try {
     console.log("Original hash:", ipfsHash);
-    // First decode any HTML entities, then properly encode for URL
     const decodedHash = decodeURIComponent(ipfsHash);
-    console.log("Decoded hash:", decodedHash);
     const encodedHash = encodeURIComponent(decodedHash)
-      .replace(/%2F/g, "/") // preserve forward slashes
-      .replace(/%20/g, "+") // replace spaces with plus signs
-      .replace(/…/g, ""); // remove ellipsis characters
+      .replace(/%2F/g, "/")
+      .replace(/%20/g, "+")
+      .replace(/…/g, "");
 
-    console.log("Encoded hash:", encodedHash);
     const fileUrl = `https://gateway.autonolas.tech/ipfs/${encodedHash}`;
-    console.log(`File URL: ${fileUrl}`);
     await fs.mkdir(outputDir, { recursive: true });
 
-    console.log(`Downloading file: ${fileName}`, fileUrl);
-    // Sanitize the fileName to remove or replace invalid characters
     const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
     const outputPath = path.join(outputDir, sanitizedFileName);
+    const relativePath = path.relative("./downloads", outputPath);
 
     const response = await axiosInstance({
       method: "get",
@@ -102,19 +136,98 @@ async function downloadIPFSFile(
         receivedData = true;
       });
 
-      writer.on("finish", () => {
+      writer.on("finish", async () => {
         if (receivedData) {
-          console.log(`Downloaded ${fileName} successfully to ${outputPath}`);
-          resolve(outputPath);
+          try {
+            // Read the file content
+            const codeContent = await fs.readFile(outputPath, "utf-8");
+
+            // Generate embedding using retry function
+            if (!codeContent) {
+              console.error("No code content received");
+              //continue
+              resolve(outputPath);
+            }
+            const embedding = await generateEmbeddingWithRetry(codeContent);
+
+            if (!embedding) {
+              console.error("No embedding received");
+              //continue
+              resolve(outputPath);
+            }
+
+            // Start a transaction
+            const client = await pool.connect();
+            try {
+              await client.query("BEGIN");
+
+              // Store in PostgreSQL with pgvector
+              const insertQuery = `
+                INSERT INTO code_embeddings (
+                  component_id,
+                  file_path,
+                  embedding,
+                  code_content
+                ) VALUES ($1, $2, $3, $4)
+                ON CONFLICT (component_id, file_path) 
+                DO UPDATE SET
+                  embedding = EXCLUDED.embedding,
+                  code_content = EXCLUDED.code_content;
+              `;
+
+              await client.query(insertQuery, [
+                componentId,
+                relativePath,
+                embedding,
+                codeContent,
+              ]);
+
+              // Reindex the table
+              const reindexQuery = `
+                REINDEX INDEX code_embeddings_embedding_idx;
+              `;
+              await client.query(reindexQuery);
+
+              await client.query("COMMIT");
+
+              console.log(
+                `Processed, stored, and reindexed embedding for ${fileName}`
+              );
+              resolve(outputPath);
+            } catch (error) {
+              await client.query("ROLLBACK");
+              console.error("Error processing embedding:", error);
+              //continue
+              resolve(outputPath);
+            } finally {
+              console.log("Releasing client");
+              client.release();
+            }
+
+            // Delete the file after successful processing
+            await fs.unlink(outputPath);
+            console.log(`Deleted file: ${outputPath}`);
+
+            resolve(outputPath);
+          } catch (error) {
+            console.error("Error processing embedding:", error);
+            // Delete the file even if processing failed
+            await fs
+              .unlink(outputPath)
+              .catch((err) =>
+                console.error(`Error deleting file ${outputPath}:`, err)
+              );
+            resolve(outputPath);
+          }
         } else {
           fsSync.unlink(outputPath, () => {});
-          reject(new Error("No data received"));
+          resolve(outputPath);
         }
       });
 
       writer.on("error", (err) => {
         fsSync.unlink(outputPath, () => {});
-        reject(err);
+        resolve(outputPath);
       });
 
       response.data.pipe(writer);
@@ -125,64 +238,54 @@ async function downloadIPFSFile(
   }
 }
 
-async function determineDirectoryType(contents: any) {
-  // Check if specific files exist in the contents
-  const files = contents.map((item: any) => item.name);
-  if (files.includes("service.yaml")) return "services";
-  if (files.includes("aea-config.yaml")) return "agents";
-  return "connections";
+async function determineCategory(contents: any[]): Promise<string | null> {
+  const yamlFiles = contents.map((item) => item.name);
+
+  if (yamlFiles.includes("contract.yaml")) return "contracts";
+  if (yamlFiles.includes("protocol.yaml")) return "protocols";
+  if (yamlFiles.includes("connection.yaml")) return "connections";
+  if (yamlFiles.includes("skill.yaml")) return "skills";
+
+  return null;
 }
 
 async function processIPFSItem(
   item: any,
   currentPath = "",
-  retryAttempts = 10
+  retryAttempts = 10,
+  componentId: string
 ) {
   try {
     if (item.isDirectory) {
-      // Get contents of this directory first
+      // Get contents of this directory
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
       const contents = await readIPFSDirectory(dirUrl);
 
-      // Determine the type of directory
-      const dirType = await determineDirectoryType(contents);
+      // Determine category from YAML files
+      const category = await determineCategory(contents);
 
-      // Create the new path including the directory type
-      const typePath = currentPath === "" ? dirType : currentPath;
-      const newPath = path.join(typePath, item.name);
+      // Create the new path, including category if found
+      let newPath;
+      if (category) {
+        newPath = path.join(category, item.name);
+      } else {
+        newPath = currentPath ? path.join(currentPath, item.name) : item.name;
+      }
+
       const outputDir = path.join("./downloads", newPath);
 
-      console.log(`Entering directory: ${newPath} (Type: ${dirType})`);
+      console.log(`Entering directory: ${newPath}`);
       await fs.mkdir(outputDir, { recursive: true });
 
-      // Process all contents
+      // Recursively process directory contents
       for (const content of contents) {
-        await processIPFSItem(content, newPath, retryAttempts);
+        await processIPFSItem(content, newPath, retryAttempts, componentId);
       }
     } else {
-      // Check if this is a service.yaml or aea-config.yaml file
-      if (item.name === "service.yaml") {
+      // Only download .py and .proto files
+      if (item.name.endsWith(".py") || item.name.endsWith(".proto")) {
         const outputDir = path.join("./downloads", currentPath);
-        const filePath = path.join(outputDir, item.name);
-
-        // First download the service.yaml file
-        await downloadIPFSFile(item.hash, item.name, outputDir);
-
-        // Then process it to find and download agent dependencies
-        await extractAndDownloadFromServiceYaml(filePath);
-      } else if (item.name === "aea-config.yaml") {
-        const outputDir = path.join("./downloads", currentPath);
-        const filePath = path.join(outputDir, item.name);
-
-        // First download the aea-config.yaml file
-        await downloadIPFSFile(item.hash, item.name, outputDir);
-
-        // Then process it to find and download dependencies
-        await extractAndDownloadAgentDependencies(filePath);
-      } else {
-        // Handle other files as before
-        const outputDir = path.join("./downloads", currentPath);
-        await downloadIPFSFile(item.hash, item.name, outputDir);
+        await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
       }
     }
   } catch (error: any) {
@@ -191,95 +294,14 @@ async function processIPFSItem(
   }
 }
 
-async function extractAndDownloadFromServiceYaml(filePath: string) {
-  try {
-    const content = await fs.readFile(filePath, "utf8");
-
-    // First, find and process the agent dependency
-    const agentMatch = content.match(/agent:.*?:([a-z0-9]{59})/i);
-
-    if (agentMatch && agentMatch[1]) {
-      const agentHash = agentMatch[1];
-      console.log(`Found agent IPFS hash in service.yaml: ${agentHash}`);
-
-      // Create agent directory
-      const agentDir = path.join(path.dirname(filePath), "agent_dependencies");
-      await fs.mkdir(agentDir, { recursive: true });
-
-      // Read the agent directory contents
-      const contents = await readIPFSDirectory(agentHash);
-      console.log(`Found ${contents.length} items in agent directory`);
-
-      // Process each item with the agent_dependencies path
-      for (const item of contents) {
-        await processIPFSItem(item, path.relative("./downloads", agentDir));
-      }
-
-      // Now look for agent's dependencies in the downloaded agent files
-      const agentFiles = await fs.readdir(agentDir, { recursive: true });
-      for (const file of agentFiles) {
-        if (file.endsWith("aea-config.yaml")) {
-          const agentConfigPath = path.join(agentDir, file);
-          await extractAndDownloadAgentDependencies(agentConfigPath);
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Error processing service.yaml:", error);
-    throw error;
-  }
-}
-
-async function extractAndDownloadAgentDependencies(agentConfigPath: string) {
-  try {
-    const content = await fs.readFile(agentConfigPath, "utf8");
-
-    // Helper function to extract hashes from YAML list items
-    const extractHashesFromList = (content: string) => {
-      // Match pattern: - valory/name:version:hash
-      const pattern = /- .*?:.*?:([a-z0-9]{59})/g;
-      const matches = [...content.matchAll(pattern)];
-      return matches.map((match) => match[1]);
-    };
-    console.log(`Extracting hashes from list: ${content}`);
-
-    // Define sections to look for
-    const sections = {
-      connections: /connections:\n((?:- .*?\n)*)/,
-      contracts: /contracts:\n((?:- .*?\n)*)/,
-      protocols: /protocols:\n((?:- .*?\n)*)/,
-      skills: /skills:\n((?:- .*?\n)*)/,
-    };
-
-    // Process each section
-    for (const [type, pattern] of Object.entries(sections)) {
-      const sectionMatch = content.match(pattern);
-      if (sectionMatch && sectionMatch[1]) {
-        const sectionContent = sectionMatch[1];
-        const hashes = extractHashesFromList(sectionContent);
-
-        for (const hash of hashes) {
-          if (!hash) continue;
-          console.log(`Found ${type} hash: ${hash}`);
-
-          // Create type-specific subdirectory
-          const dependencyDir = path.join(path.dirname(agentConfigPath), type);
-          await fs.mkdir(dependencyDir, { recursive: true });
-
-          await recursiveDownload(hash);
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Error processing agent dependencies:", error);
-    throw error;
-  }
-}
-
 // Track downloaded hashes to prevent duplicates
 const downloadedHashes = new Set();
 
-async function recursiveDownload(ipfsHash: string, retryAttempts = 3) {
+export async function recursiveDownload(
+  ipfsHash: string,
+  retryAttempts = 3,
+  componentId: string
+) {
   try {
     if (downloadedHashes.has(ipfsHash)) {
       console.log(`Skipping already downloaded hash: ${ipfsHash}`);
@@ -298,12 +320,23 @@ async function recursiveDownload(ipfsHash: string, retryAttempts = 3) {
 
     // Process each item
     for (const item of contents) {
-      await processIPFSItem(item, "", retryAttempts);
+      await processIPFSItem(item, "", retryAttempts, componentId);
     }
 
     console.log(`Completed download for hash: ${ipfsHash}`);
+
+    // Delete the downloads directory and all its contents
+    await fs.rm("./downloads", { recursive: true, force: true });
+    console.log("Cleaned up downloads directory");
   } catch (error) {
     console.error(`Failed to download ${ipfsHash}:`, error);
+    // Attempt to clean up downloads directory even if there was an error
+    try {
+      await fs.rm("./downloads", { recursive: true, force: true });
+      console.log("Cleaned up downloads directory after error");
+    } catch (cleanupError) {
+      console.error("Failed to clean up downloads directory:", cleanupError);
+    }
     throw error;
   }
 }

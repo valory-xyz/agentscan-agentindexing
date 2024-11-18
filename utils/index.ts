@@ -1,4 +1,5 @@
 import axios from "axios";
+import { recursiveDownload } from "./ipfs";
 
 // Helper function to get chain name from contract name
 export const getChainName = (contractName: string) => {
@@ -47,6 +48,24 @@ export const getChainId = (chain: string): number => {
 // Add delay helper function
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export const fetchAndEmbedMetadata = async (
+  configHash: string,
+  maxRetries = 3,
+  componentId: string
+) => {
+  const metadata = await fetchAndTransformMetadata(configHash, maxRetries);
+  console.log("metadata", metadata?.packageHash);
+  recursiveDownload(metadata?.packageHash, 3, componentId)
+    .then(() => {
+      return metadata;
+    })
+    .catch((error) => {
+      console.error("Error fetching and embedding metadata:", error);
+      return null;
+    });
+  return metadata;
+};
+
 // Add this new helper function
 export const fetchAndTransformMetadata = async (
   configHash: string,
@@ -60,7 +79,9 @@ export const fetchAndTransformMetadata = async (
   // Implement retry logic
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const metadata = await axios.get(metadataURI);
+      const metadata = await axios.get(metadataURI, {
+        timeout: 3500, // 4 seconds timeout
+      });
       let metadataJson = metadata.data;
 
       // Extract packageHash with more robust handling
