@@ -141,6 +141,7 @@ async function downloadIPFSFile(
           try {
             // Read the file content
             const codeContent = await fs.readFile(outputPath, "utf-8");
+            console.log("codeContent", codeContent);
 
             // Generate embedding using retry function
             if (!codeContent) {
@@ -149,7 +150,7 @@ async function downloadIPFSFile(
               resolve(outputPath);
             }
             const embedding = await generateEmbeddingWithRetry(codeContent);
-
+            console.log("embedding", embedding);
             if (!embedding) {
               console.error("No embedding received");
               //continue
