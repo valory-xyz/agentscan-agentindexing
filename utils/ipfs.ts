@@ -21,7 +21,6 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
 
     // Using the IPFS HTTP API
     const apiUrl = `https://gateway.autonolas.tech/api/v0/ls?arg=${cleanCid}`;
-    console.log(`API URL: ${apiUrl}`);
 
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -142,7 +141,6 @@ async function downloadIPFSFile(
           try {
             // Read the file content
             const codeContent = await fs.readFile(outputPath, "utf-8");
-            console.log("codeContent", codeContent);
 
             // Generate embedding using retry function
             if (!codeContent) {
@@ -151,7 +149,7 @@ async function downloadIPFSFile(
               resolve(outputPath);
             }
             const embedding = await generateEmbeddingWithRetry(codeContent);
-            console.log("embedding", embedding);
+
             if (!embedding) {
               console.error("No embedding received");
               //continue

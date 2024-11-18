@@ -92,7 +92,6 @@ export const fetchAndTransformMetadata = async (
         } else if (metadataJson.code_uri.includes("/ipfs/")) {
           metadataJson.packageHash = metadataJson.code_uri.split("/ipfs/")[1];
         } else {
-          console.log("code_uri", metadataJson.code_uri);
           // If code_uri exists but doesn't match expected formats
           metadataJson.packageHash = metadataJson.code_uri;
         }
