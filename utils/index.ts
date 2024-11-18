@@ -112,7 +112,9 @@ export const fetchAndTransformMetadata = async (
       // Exponential backoff: 2^attempt * 1000ms (1s, 2s, 4s, 8s, 16s)
       const backoffTime = Math.min(1000 * Math.pow(2, attempt), 16000);
       console.log(
-        `Attempt ${attempt + 1} failed, retrying in ${backoffTime / 1000}s...`
+        `Attempt ${attempt + 1} failed for ${metadataURI}, retrying in ${
+          backoffTime / 1000
+        }s...`
       );
       await delay(backoffTime);
     }
