@@ -4,6 +4,7 @@ import fsSync from "fs";
 import path from "path";
 import openai from "./openai";
 import pool from "./postgres";
+import pgvector from "pgvector";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
@@ -78,7 +79,7 @@ async function generateEmbeddingWithRetry(
         dimensions: 512,
       });
 
-      return embeddingResponse.data?.[0]?.embedding;
+      return pgvector.toSql(embeddingResponse.data?.[0]?.embedding);
     } catch (error: any) {
       if (attempt === maxRetries) {
         console.error(
