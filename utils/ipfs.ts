@@ -258,6 +258,12 @@ async function processIPFSItem(
   componentId: string
 ) {
   try {
+    // Add check for tests folder
+    if (item.name === "tests" || currentPath.includes("tests")) {
+      console.log("Skipping tests folder");
+      return;
+    }
+
     if (item.isDirectory) {
       // Get contents of this directory
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
