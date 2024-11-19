@@ -81,9 +81,11 @@ export async function generateEmbeddingWithRetry(
 ): Promise<number[] | undefined> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      //clean the text, remove newlines and carriage returns
+      const cleanedText = text.replace(/[\r\n]/g, " ");
       const embeddingResponse = await openai.embeddings.create({
         model: "text-embedding-3-small",
-        input: text,
+        input: cleanedText,
         dimensions: 512,
       });
 
@@ -189,19 +191,19 @@ async function downloadIPFSFile(
         const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
         const outputPath = path.join(outputDir, sanitizedFileName);
         //check if the file already is in the database
-        // client = await pool.connect();
-        // await client.query("BEGIN");
-        // const checkQuery = `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`;
-        // const result = await client.query(checkQuery, [
-        //   componentId,
-        //   outputPath,
-        // ]);
-        // console.log("Check query result:", result.rows);
-        // if (result.rows.length > 0) {
-        //   console.log(`File ${fileName} already exists in the database`);
-        //   client.release();
-        //   return outputPath;
-        // }
+        client = await pool.connect();
+        await client.query("BEGIN");
+        const checkQuery = `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`;
+        const result = await client.query(checkQuery, [
+          componentId,
+          outputPath,
+        ]);
+        console.log("Check query result:", result.rows);
+        if (result.rows.length > 0) {
+          console.log(`File ${fileName} already exists in the database`);
+          client.release();
+          return outputPath;
+        }
         const relativePath = path.relative("./downloads", outputPath);
 
         const downloadWithRetry = async (attempt = 1): Promise<any> => {
@@ -250,8 +252,13 @@ async function downloadIPFSFile(
                     throw new Error("Invalid code content");
                   }
 
+                  const cleanedCodeContent = codeContent.replace(
+                    /[\r\n]/g,
+                    " "
+                  );
+
                   const embedding = await generateEmbeddingWithRetry(
-                    codeContent
+                    cleanedCodeContent
                   );
 
                   if (!embedding) {
@@ -277,7 +284,7 @@ async function downloadIPFSFile(
                     componentId,
                     relativePath,
                     embedding,
-                    codeContent,
+                    cleanedCodeContent,
                   ]);
 
                   // Update status to completed
