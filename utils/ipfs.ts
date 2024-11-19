@@ -107,7 +107,7 @@ async function downloadIPFSFile(
   fileName: string,
   outputDir: string = "./downloads",
   componentId: string
-): Promise<string> {
+): Promise<string | null> {
   let client: PoolClient | undefined;
   try {
     console.log("Original hash:", ipfsHash);
@@ -207,7 +207,7 @@ async function downloadIPFSFile(
             resolve(outputPath);
           }
         } catch (error) {
-          console.error("Error in writer finish handler:", error);
+          console.log("Error in writer finish handler:", error);
           await fs.unlink(outputPath).catch(console.error);
           if (client) {
             await client.query("ROLLBACK").catch(console.error);
@@ -218,7 +218,7 @@ async function downloadIPFSFile(
       });
 
       writer.on("error", async (err) => {
-        console.error("Write stream error:", err);
+        console.log("Write stream error:", err);
         await fs.unlink(outputPath).catch(console.error);
         resolve(outputPath);
       });
@@ -226,12 +226,12 @@ async function downloadIPFSFile(
       response.data.pipe(writer);
     });
   } catch (error: any) {
-    console.error(`Error downloading file ${fileName}:`, error.message);
+    console.log(`Error downloading file ${fileName}:`, error.message);
     if (client) {
       await client.query("ROLLBACK").catch(console.error);
       client.release();
     }
-    throw error;
+    return null;
   }
 }
 
@@ -292,8 +292,8 @@ async function processIPFSItem(
       }
     }
   } catch (error: any) {
-    console.error(`Error processing item ${item.name}:`, error.message);
-    throw error;
+    console.log(`Error processing item ${item.name}:`, error.message);
+    return null;
   }
 }
 
