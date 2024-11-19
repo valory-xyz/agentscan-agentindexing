@@ -150,7 +150,7 @@ export const fetchAndTransformMetadata = async (
       }
 
       try {
-        await dbQueue.add(async () => {
+        dbQueue.add(async () => {
           // Embedding storage logic
           const id = `${configInfo.type}-${configInfo.id}`;
           const checkQuery = `SELECT 1 FROM metadata_embeddings WHERE id = $1`;

@@ -305,7 +305,7 @@ async function processIPFSItem(
         const outputDir = path.join("./downloads", currentPath);
 
         // Queue the database operation
-        await dbQueue.add(async () => {
+        dbQueue.add(async () => {
           try {
             await downloadIPFSFile(
               item.hash,
