@@ -530,6 +530,7 @@ async function processCodeContent(
 ): Promise<void> {
   // Generate embeddings (might return single or multiple embeddings)
   const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
+  console.log(`Generated ${embeddings.length} embeddings for ${relativePath}`);
 
   // Handle single or multiple embeddings
   if (!Array.isArray(embeddings[0])) {
@@ -559,10 +560,13 @@ async function processCodeContent(
   } else {
     // Multiple embeddings case - store chunks with modified file paths
     const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
+    console.log(`Split into ${chunks.length} chunks for ${relativePath}`);
 
     for (let i = 0; i < embeddings.length; i++) {
       const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
-
+      console.log(
+        `Processing chunk ${i + 1} of ${embeddings.length}: ${chunkPath}`
+      );
       const chunkInsertQuery = `
         INSERT INTO code_embeddings (
           component_id,
