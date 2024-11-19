@@ -125,9 +125,10 @@ async function downloadIPFSFile(
   ipfsHash: string,
   fileName: string,
   outputDir: string = "./downloads",
-  componentId: string
+  componentId: string,
+  maxRetries: number = 15
 ): Promise<string | null> {
-  const client = await pool.connect();
+  let client = await pool.connect();
   const relativePath = path.relative(
     "./downloads",
     path.join(outputDir, fileName)
@@ -177,7 +178,6 @@ async function downloadIPFSFile(
         const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
         const outputPath = path.join(outputDir, sanitizedFileName);
         //check if the file already is in the database
-        client = await pool.connect();
         await client.query("BEGIN");
         const checkQuery = `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`;
         const result = await client.query(checkQuery, [
