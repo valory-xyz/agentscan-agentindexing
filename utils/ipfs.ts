@@ -28,7 +28,7 @@ function getNextGateway(): string | undefined {
   return gateway;
 }
 
-async function readIPFSDirectory(cid: string, maxRetries: number = 30) {
+async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
   try {
     const cleanCid = cid.replace(/^https:\/\/[^/]+\/ipfs\//, "");
     let lastError;
@@ -364,7 +364,7 @@ async function determineCategory(contents: any[]): Promise<string | null> {
 async function processIPFSItem(
   item: any,
   currentPath = "",
-  retryAttempts = 30,
+  retryAttempts = 25,
   componentId: string
 ) {
   try {
