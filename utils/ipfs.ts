@@ -237,7 +237,7 @@ async function downloadIPFSFile(
                   new Error(`Failed to download after ${maxRetries} attempts`)
                 );
               }
-            }, 20000); // 20 second timeout
+            }, 25000); // 20 second timeout
 
             response.data.on("data", () => {
               console.log("Received data");
@@ -261,6 +261,7 @@ async function downloadIPFSFile(
                     /[\r\n]/g,
                     " "
                   );
+                  console.log("Cleaned code content:", cleanedCodeContent);
 
                   const embedding = await generateEmbeddingWithRetry(
                     cleanedCodeContent
