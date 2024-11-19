@@ -296,16 +296,19 @@ CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
     const serviceId = event.args.serviceId.toString().toLowerCase();
+    const cleanServiceId = serviceId.replace(/^service-/, "");
+    const chainScopedId = createChainScopedId(chain, cleanServiceId);
+
     const metadataJson = await memoizedFetchMetadata(
       event.args.configHash,
-      createChainScopedId(chain, serviceId),
+      chainScopedId,
       "service"
     );
     const packageHash = metadataJson?.packageHash;
 
     try {
       await context.db.insert(Service).values({
-        id: createChainScopedId(chain, serviceId),
+        id: chainScopedId,
         chain,
         securityDeposit: 0n,
         multisig: "0x",
@@ -324,27 +327,26 @@ CONTRACT_NAMES.forEach((contractName) => {
       });
     } catch (e) {
       //if the service already exists, update it
-      await context.db
-        .update(Service, { id: createChainScopedId(chain, serviceId) })
-        .set({
-          metadata: metadataJson,
-          metadataHash: event.args.configHash,
-          packageHash,
-          metadataURI: metadataJson?.metadataURI,
-        });
+      await context.db.update(Service, { id: chainScopedId }).set({
+        metadata: metadataJson,
+        metadataHash: event.args.configHash,
+        packageHash,
+        metadataURI: metadataJson?.metadataURI,
+      });
       console.error("Error in CreateService handler:", e);
     }
   });
 
   ponder.on(`${contractName}:DeployService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
-
     const serviceId = event.args.serviceId.toString().toLowerCase();
+    const cleanServiceId = serviceId.replace(/^service-/, "");
+    const chainScopedId = createChainScopedId(chain, cleanServiceId);
 
     try {
       await context.db
         .update(Service, {
-          id: createChainScopedId(chain, serviceId),
+          id: chainScopedId,
         })
         .set({
           state: "DEPLOYED",
@@ -435,7 +437,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
     const metadataJson = await memoizedFetchMetadata(
       event.args.configHash,
-      createChainScopedId(chain, serviceId),
+      serviceId,
       "service"
     );
     const packageHash = metadataJson?.packageHash;

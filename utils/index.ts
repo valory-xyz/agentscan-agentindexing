@@ -12,8 +12,16 @@ export const getChainName = (contractName: string) => {
 };
 
 // Helper to create unique IDs across chains
-export const createChainScopedId = (chain: string, id: string) =>
-  `${chain.toLowerCase()}-${id.toLowerCase()}`;
+export const createChainScopedId = (
+  chain: string,
+  serviceId: string
+): string => {
+  // If serviceId already contains the chain name, don't add it again
+  if (serviceId.startsWith(`service-${chain}`)) {
+    return serviceId;
+  }
+  return `service-${chain}-${serviceId}`;
+};
 
 // List all contract names
 export const CONTRACT_NAMES = [
