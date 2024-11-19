@@ -68,7 +68,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
 export async function generateEmbeddingWithRetry(
   text: string,
   maxRetries: number = 3,
-  initialDelay: number = 1000
+  initialDelay: number = 400
 ): Promise<number[] | undefined> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -90,7 +90,7 @@ export async function generateEmbeddingWithRetry(
 
       // Calculate delay with exponential backoff and jitter
       const delay =
-        initialDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+        initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
       console.log(
         `Embedding generation attempt ${attempt} failed. Retrying in ${delay}ms...`
       );
