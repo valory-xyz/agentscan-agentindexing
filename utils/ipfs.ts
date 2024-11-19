@@ -44,8 +44,10 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
   let lastError;
 
   while (attempts < maxRetries) {
-    console.log(`Attempt ${attempts + 1} of ${maxRetries} for ${cleanCid}`);
     const gateway = getNextGateway();
+    console.log(
+      `Attempt ${attempts + 1} of ${maxRetries} for ${cleanCid} on ${gateway}`
+    );
     try {
       if (!gateway) {
         throw new Error("No available gateways");
