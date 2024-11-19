@@ -173,7 +173,7 @@ async function downloadIPFSFile(
         }
 
         const codeContent = response.data;
-        console.log(`Code content: ${codeContent}`);
+        console.log(`Cat response: ${codeContent}`);
         const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
 
         if (cleanedCodeContent.includes("Blocked content")) {
