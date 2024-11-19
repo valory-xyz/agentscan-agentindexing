@@ -46,36 +46,23 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         throw new Error("No available gateways");
       }
 
-      // First try /ls endpoint as it's more reliable for directories
-      const apiUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
-      const response = await axiosInstance.get(apiUrl);
-
-      if (response.data?.Objects?.[0]?.Links) {
-        return response.data.Objects[0].Links.map((item: any) => ({
-          name: item.Name,
-          hash: item.Hash,
-          size: item.Size,
-          type: item.Type,
-          isDirectory: item.Type === 1 || item.Type === "dir",
-        }));
-      }
-
-      // Fallback to /dag/get if /ls fails
       const dagUrl = `${gateway}/api/v0/dag/get?arg=${cleanCid}`;
-      const dagResponse = await axiosInstance.get(dagUrl);
-      console.log(`Response for dag ${dagUrl}:`, dagResponse.data);
+      const response = await axiosInstance.get(dagUrl);
+      console.log(`Response for dag ${dagUrl}:`, response.data);
+      const hash = response.data?.Links?.[0]?.Hash;
+      console.log(`Hash for dag: ${hash}`);
 
-      if (dagResponse.data?.Links) {
-        return dagResponse.data.Links.map((item: any) => ({
+      if (response.data?.Links) {
+        return response.data.Links.map((item: any) => ({
           name: item.Name,
-          hash: item.Hash || item.Cid["/"],
-          size: item.Size || item.Tsize,
-          type: item.Type,
-          isDirectory: item.Type === 1 || item.Type === "dir",
+          hash: item.Hash["/"] || item.Hash,
+          size: item.Tsize,
+          type: response.data.Data?.["/"]?.bytes === "CAE" ? 1 : 0,
+          isDirectory: response.data.Data?.["/"]?.bytes === "CAE",
         }));
       }
 
-      // If both attempts fail, retry with delay
+      // If no valid response, retry with delay
       console.log(`No valid directory structure found, retrying...`);
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
