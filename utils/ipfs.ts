@@ -42,31 +42,44 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       `Attempt ${attempts + 1} of ${maxRetries} for ${cleanCid} on ${gateway}`
     );
     try {
-      if (!gateway) {
-        throw new Error("No available gateways");
-      }
+      if (!gateway) throw new Error("No available gateways");
 
-      // Request directory listing in DAG-JSON format for programmatic consumption
+      // Request directory listing in DAG-JSON format with multiple content negotiation methods
       const response = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
         headers: {
-          Accept: "application/vnd.ipld.dag-json", // Request DAG-JSON instead of HTML
-          "Cache-Control": "only-if-cached",
-          "If-None-Match": "*",
+          // Explicitly request DAG-JSON in headers
+          Accept: "application/vnd.ipld.dag-json",
           "X-Content-Type-Options": "nosniff",
         },
         params: {
-          format: "dag-json", // Explicitly request DAG-JSON format in URL
+          // Explicitly request DAG-JSON in URL parameters
+          format: "dag-json",
         },
+        // Prevent axios from trying to parse the response
+        transformResponse: [(data) => data],
       });
 
-      console.log(`Directory response: ${response.data}`);
-      if (response.data?.Objects?.[0]?.Links) {
+      // Parse the response manually to handle both string and object responses
+      let parsedData;
+      try {
+        parsedData =
+          typeof response.data === "string"
+            ? JSON.parse(response.data)
+            : response.data;
+      } catch (e) {
+        console.log("Failed to parse directory response:", e);
+        throw new Error("Invalid directory response format");
+      }
+      console.log(`Parsed data: ${parsedData}`);
+
+      // Check for valid DAG-JSON directory structure
+      if (parsedData?.Objects?.[0]?.Links) {
         console.log(
-          `Found ${response.data.Objects[0].Links.length} items in directory response`
+          `Found ${parsedData.Objects[0].Links.length} items in directory response`
         );
-        return response.data.Objects[0].Links.map((item: any) => ({
+        return parsedData.Objects[0].Links.map((item: any) => ({
           name: item.Name,
-          hash: item.Hash,
+          hash: item.Hash["/"], // Handle DAG-JSON CID format
           size: item.Size,
           type: item.Type,
           isDirectory: item.Type === 1 || item.Type === "dir",
