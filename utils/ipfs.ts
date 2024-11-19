@@ -19,11 +19,7 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500,
 });
 
-const IPFS_GATEWAYS = [
-  "https://gateway.autonolas.tech",
-  "https://ipfs.io",
-  "https://gateway.pinata.cloud",
-];
+const IPFS_GATEWAYS = ["https://gateway.autonolas.tech", "https://ipfs.io"];
 
 let currentGatewayIndex = 0;
 
