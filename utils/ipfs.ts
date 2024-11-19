@@ -187,6 +187,7 @@ async function downloadIPFSFile(
         console.log("Check query result:", result.rows);
         if (result.rows.length > 0) {
           console.log(`File ${fileName} already exists in the database`);
+          await client.query("COMMIT");
           client.release();
           return outputPath;
         }
@@ -320,6 +321,8 @@ async function downloadIPFSFile(
                   );
 
                   await client.query("COMMIT");
+                  client.release();
+                  return outputPath;
                 }
               } catch (error: any) {
                 await client.query(
