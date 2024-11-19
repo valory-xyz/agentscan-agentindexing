@@ -174,6 +174,12 @@ export const fetchAndTransformMetadata = async (
         await pool.query(insertQuery, params);
 
         console.log(`Stored embedding for ${configInfo.type} ${configInfo.id}`);
+        // Reindex the table
+        const reindexQuery = `
+          REINDEX INDEX metadata_embeddings_embedding_idx;
+        `;
+
+        await pool.query(reindexQuery);
       } catch (error) {
         console.error("Error storing metadata embedding:", error);
       }
