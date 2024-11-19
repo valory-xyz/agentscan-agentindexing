@@ -87,138 +87,6 @@ enum ProcessingStatus {
   FAILED = "failed",
 }
 
-const downloadWithRetry = async (
-  attempt = 1,
-  fileName: string,
-  outputPath: string,
-  client: PoolClient,
-  componentId: string,
-  relativePath: string,
-  response: AxiosResponse,
-  maxRetries: number = 15
-): Promise<any> => {
-  return new Promise((resolve, reject) => {
-    console.log(`Creating write stream for ${fileName}`);
-    const writer = fsSync.createWriteStream(outputPath);
-    let receivedData = false;
-    let dataSize = 0;
-    let timeoutId: NodeJS.Timeout;
-
-    // Set a timeout for the entire operation
-    const operationTimeout = setTimeout(() => {
-      console.log(`Operation timed out for ${fileName}`);
-      writer.end();
-      reject(new Error("Operation timeout"));
-    }, 30000); // 30 second total timeout
-
-    response.data.on("data", (chunk: any) => {
-      dataSize += chunk.length;
-      receivedData = true;
-      console.log(`Received chunk for ${fileName}: ${dataSize} bytes`);
-
-      // Reset the timeout on each chunk
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        console.log(`Data transfer stalled for ${fileName}`);
-        writer.end();
-        reject(new Error("Data transfer timeout"));
-      }, 10000); // 10 second timeout between chunks
-    });
-
-    writer.on("finish", async () => {
-      console.log(`Write stream finished for ${fileName}`);
-      clearTimeout(timeoutId);
-      clearTimeout(operationTimeout);
-
-      if (!receivedData) {
-        console.log(`No data received for ${fileName}`);
-        reject(new Error("No data received"));
-        return;
-      }
-
-      try {
-        console.log(`Reading file content for ${fileName}`);
-        const codeContent = await fs.readFile(outputPath, "utf-8");
-        console.log(`Successfully read file content for ${fileName}`);
-
-        if (!codeContent) {
-          throw new Error("Invalid code content");
-        }
-
-        const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
-
-        // Add check for blocked content
-        if (cleanedCodeContent.includes("Blocked content")) {
-          console.log("Blocked content detected, retrying download...");
-          await fs.unlink(outputPath).catch(console.error);
-          if (attempt < maxRetries) {
-            console.log(
-              `Initiating retry attempt ${attempt + 1}/${maxRetries}`
-            );
-            const result = await downloadWithRetry(
-              attempt + 1,
-              fileName,
-              outputPath,
-              client,
-              componentId,
-              relativePath,
-              response,
-              maxRetries
-            );
-            resolve(result);
-            return;
-          } else {
-            reject(
-              new Error(
-                "Failed to download after all retries - Blocked content"
-              )
-            );
-            return;
-          }
-        }
-        try {
-          await processCodeContent(
-            componentId,
-            relativePath,
-            cleanedCodeContent
-          );
-          // On successful processing
-          await executeQuery(async (client) => {
-            await client.query(
-              `
-          UPDATE code_processing_status 
-          SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
-          WHERE component_id = $2 AND file_path = $3
-        `,
-              [ProcessingStatus.COMPLETED, componentId, relativePath]
-            );
-          });
-        } catch (error) {
-          console.error(`Error processing ${fileName}:`, error);
-          throw error;
-        }
-
-        console.log(`Database operations completed for ${fileName}`);
-        resolve(outputPath);
-      } catch (error) {
-        console.error(`Error processing ${fileName}:`, error);
-
-        reject(error);
-      }
-    });
-
-    writer.on("error", (err) => {
-      console.error(`Write stream error for ${fileName}:`, err);
-      clearTimeout(timeoutId);
-      clearTimeout(operationTimeout);
-      reject(err);
-    });
-
-    console.log(`Starting pipe operation for ${fileName}`);
-    response.data.pipe(writer);
-  });
-};
-
 async function downloadIPFSFile(
   ipfsHash: string,
   fileName: string,
@@ -445,7 +313,8 @@ async function processIPFSItem(
               item.hash,
               item.name,
               outputDir,
-              componentId
+              componentId,
+              15
             );
           } catch (error) {
             throw error;
@@ -478,19 +347,26 @@ async function safeDownload(
     });
 
     // Try to read directory with better error handling
-    let contents;
+    let contents = [];
     try {
       contents = await readIPFSDirectory(ipfsHash);
       console.log(`Found ${contents?.length || 0} items in root directory`);
     } catch (error) {
       console.error(`Failed to read IPFS directory ${ipfsHash}:`, error);
-
-      return;
     }
 
     if (!contents || !Array.isArray(contents)) {
-      console.error("Invalid contents returned from IPFS");
-      return;
+      //update code_processing_status to failed
+      await executeQuery(async (client) => {
+        await client.query(
+          `UPDATE code_processing_status SET status = $1, error_message = $2 WHERE component_id = $3`,
+          [
+            ProcessingStatus.FAILED,
+            "Failed to read IPFS directory",
+            componentId,
+          ]
+        );
+      });
     }
 
     // Process each item with individual error handling
