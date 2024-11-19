@@ -231,7 +231,7 @@ async function downloadIPFSFile(
   maxRetries: number = 15
 ): Promise<string | null> {
   const fullPath = path.join(outputDir, fileName);
-  const relativePath = fullPath.replace(/^\.?\/downloads\//, "");
+  const relativePath = path.relative("downloads", fullPath);
 
   console.log(`Starting download for ${relativePath}...`);
 
@@ -558,7 +558,8 @@ function getChunkFileName(
 ): string {
   if (totalChunks <= 1) return originalPath;
 
-  const parsedPath = path.parse(originalPath);
+  const cleanPath = originalPath.replace(/^downloads\//, "");
+  const parsedPath = path.parse(cleanPath);
   const directory = parsedPath.dir;
   const newName = `${parsedPath.name}.part${chunkIndex + 1}of${totalChunks}`;
 
