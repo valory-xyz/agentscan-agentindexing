@@ -109,7 +109,7 @@ export const fetchAndTransformMetadata = async (
       });
       let metadataJson = metadata.data;
 
-      // Extract packageHash with more robust handling
+      // Handle package hash extraction first
       if (metadataJson.code_uri) {
         // Try different possible formats
         if (metadataJson.code_uri.includes("ipfs://")) {
@@ -135,12 +135,21 @@ export const fetchAndTransformMetadata = async (
         metadataJson.packageHash = null;
       }
 
-      //config info: {type: "component",id: "3"}
-      try {
-        // Create unique ID based on type and entity ID
-        const id = `${configInfo.type}-${configInfo.id}`;
+      // Download package regardless of embedding status
+      if (metadataJson.packageHash) {
+        console.log("Downloading package hash...", metadataJson.packageHash);
+        try {
+          await recursiveDownload(metadataJson.packageHash, 3, configInfo.id);
+        } catch (error) {
+          console.error("Error downloading package hash:", error);
+        }
+      } else {
+        console.log("No package hash found", configInfo.id);
+      }
 
-        //check if the embedding already exists
+      try {
+        // Embedding storage logic
+        const id = `${configInfo.type}-${configInfo.id}`;
         const checkQuery = `SELECT 1 FROM metadata_embeddings WHERE id = $1`;
         const result = await pool.query(checkQuery, [id]);
         if (result.rows.length > 0) {

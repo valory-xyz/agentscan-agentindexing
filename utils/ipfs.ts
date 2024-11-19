@@ -109,6 +109,14 @@ export async function generateEmbeddingWithRetry(
   throw new Error("Failed to generate embedding after all retries");
 }
 
+// Add new status tracking enum
+enum ProcessingStatus {
+  PENDING = "pending",
+  PROCESSING = "processing",
+  COMPLETED = "completed",
+  FAILED = "failed",
+}
+
 async function downloadIPFSFile(
   ipfsHash: string,
   fileName: string,
@@ -119,6 +127,38 @@ async function downloadIPFSFile(
   let client: PoolClient | undefined;
 
   try {
+    // Initialize status tracking
+    client = await pool.connect();
+    await client.query("BEGIN");
+
+    const relativePath = path.relative(
+      "./downloads",
+      path.join(outputDir, fileName)
+    );
+
+    // Update or insert processing status
+    const statusQuery = `
+      INSERT INTO code_processing_status (component_id, file_path, status)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (component_id, file_path) 
+      DO UPDATE SET 
+        status = $3,
+        retry_count = code_processing_status.retry_count + 1,
+        last_attempted_at = CURRENT_TIMESTAMP
+      RETURNING retry_count;
+    `;
+
+    const statusResult = await client.query(statusQuery, [
+      componentId,
+      relativePath,
+      ProcessingStatus.PROCESSING,
+    ]);
+
+    const retryCount = statusResult.rows[0]?.retry_count || 0;
+    if (retryCount >= maxRetries) {
+      throw new Error(`Max retries (${maxRetries}) exceeded for ${fileName}`);
+    }
+
     console.log("Original hash:", ipfsHash);
     console.log("Starting download process for:", fileName);
 
@@ -418,5 +458,34 @@ export async function recursiveDownload(
     } catch (cleanupError) {
       console.error("Failed to clean up downloads directory:", cleanupError);
     }
+  }
+}
+
+// Add a new function to retry failed processes
+export async function retryFailedProcessing() {
+  const client = await pool.connect();
+  try {
+    const failedQuery = `
+      SELECT component_id, file_path 
+      FROM code_processing_status 
+      WHERE status = $1 AND retry_count < $2
+      AND (last_attempted_at IS NULL OR last_attempted_at < NOW() - INTERVAL '1 hour')
+    `;
+
+    const failedResults = await client.query(failedQuery, [
+      ProcessingStatus.FAILED,
+      3,
+    ]);
+
+    for (const row of failedResults.rows) {
+      try {
+        // Reprocess the file
+        await recursiveDownload(row.component_id, 3, row.component_id);
+      } catch (error) {
+        console.error(`Failed to reprocess ${row.file_path}:`, error);
+      }
+    }
+  } finally {
+    client.release();
   }
 }
