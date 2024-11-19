@@ -230,28 +230,27 @@ async function downloadIPFSFile(
   componentId: string,
   maxRetries: number = 15
 ): Promise<string | null> {
-  return await executeQuery(async (client) => {
-    const fullPath = path.join(outputDir, fileName);
-    const relativePath = fullPath.replace(/^\.?\/downloads\//, "");
+  const fullPath = path.join(outputDir, fileName);
+  const relativePath = fullPath.replace(/^\.?\/downloads\//, "");
 
-    console.log(`Starting download for ${relativePath}...`);
+  console.log(`Starting download for ${relativePath}...`);
 
-    try {
-      const checkResult = await executeQuery(async (client) => {
-        return await client.query(
-          `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
-          [componentId, relativePath]
-        );
-      });
+  try {
+    const checkResult = await executeQuery(async (client) => {
+      return await client.query(
+        `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
+        [componentId, relativePath]
+      );
+    });
 
-      if (checkResult.rows.length > 0) {
-        console.log(`File ${relativePath} already exists in the database`);
-        return fullPath;
-      }
+    if (checkResult.rows.length > 0) {
+      console.log(`File ${relativePath} already exists in the database`);
+      return fullPath;
+    }
 
-      await executeQuery(async (client) => {
-        await client.query(
-          `
+    await executeQuery(async (client) => {
+      await client.query(
+        `
           INSERT INTO code_processing_status (component_id, file_path, status)
           VALUES ($1, $2, $3)
           ON CONFLICT (component_id, file_path) 
@@ -259,113 +258,112 @@ async function downloadIPFSFile(
             status = $3,
             updated_at = CURRENT_TIMESTAMP
         `,
-          [componentId, relativePath, ProcessingStatus.PROCESSING]
-        );
-      });
+        [componentId, relativePath, ProcessingStatus.PROCESSING]
+      );
+    });
 
-      let lastError;
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        const gateway = getNextGateway();
-        const fileUrl = `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`;
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const gateway = getNextGateway();
+      const fileUrl = `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`;
 
-        try {
-          const response = await axiosInstance({
-            method: "get",
-            url: fileUrl,
-            responseType: "stream",
+      try {
+        const response = await axiosInstance({
+          method: "get",
+          url: fileUrl,
+          responseType: "stream",
+        });
+
+        await fs.mkdir(outputDir, { recursive: true });
+        const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
+        const outputPath = path.join(outputDir, sanitizedFileName);
+
+        // Process the download
+        const result = await new Promise((resolve, reject) => {
+          const writer = fsSync.createWriteStream(outputPath);
+          let receivedData = false;
+          let dataSize = 0;
+
+          response.data.on("data", (chunk: any) => {
+            dataSize += chunk.length;
+            receivedData = true;
           });
 
-          await fs.mkdir(outputDir, { recursive: true });
-          const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
-          const outputPath = path.join(outputDir, sanitizedFileName);
+          writer.on("finish", async () => {
+            if (!receivedData) {
+              reject(new Error("No data received"));
+              return;
+            }
 
-          // Process the download
-          const result = await new Promise((resolve, reject) => {
-            const writer = fsSync.createWriteStream(outputPath);
-            let receivedData = false;
-            let dataSize = 0;
+            try {
+              const codeContent = await fs.readFile(outputPath, "utf-8");
+              if (!codeContent) {
+                throw new Error("Invalid code content");
+              }
 
-            response.data.on("data", (chunk: any) => {
-              dataSize += chunk.length;
-              receivedData = true;
-            });
+              const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
 
-            writer.on("finish", async () => {
-              if (!receivedData) {
-                reject(new Error("No data received"));
+              if (cleanedCodeContent.includes("Blocked content")) {
+                reject(new Error("Blocked content detected"));
                 return;
               }
 
-              try {
-                const codeContent = await fs.readFile(outputPath, "utf-8");
-                if (!codeContent) {
-                  throw new Error("Invalid code content");
-                }
+              // Process the code content within the same transaction
+              await processCodeContent(
+                componentId,
+                relativePath,
+                cleanedCodeContent
+              );
 
-                const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
-
-                if (cleanedCodeContent.includes("Blocked content")) {
-                  reject(new Error("Blocked content detected"));
-                  return;
-                }
-
-                // Process the code content within the same transaction
-                await processCodeContent(
-                  componentId,
-                  relativePath,
-                  cleanedCodeContent
-                );
-
-                // Update status to completed
-                await executeQuery(async (client) => {
-                  await client.query(
-                    `
+              // Update status to completed
+              await executeQuery(async (client) => {
+                await client.query(
+                  `
                   UPDATE code_processing_status 
                   SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
                   WHERE component_id = $2 AND file_path = $3
                 `,
-                    [ProcessingStatus.COMPLETED, componentId, relativePath]
-                  );
-                });
+                  [ProcessingStatus.COMPLETED, componentId, relativePath]
+                );
+              });
 
-                resolve(outputPath);
-              } catch (error) {
-                reject(error);
-              }
-            });
-
-            writer.on("error", reject);
-            response.data.pipe(writer);
+              resolve(outputPath);
+            } catch (error) {
+              reject(error);
+            }
           });
 
-          // If we get here, everything succeeded
-          await client.query("COMMIT");
-          return result as string;
-        } catch (error: any) {
-          lastError = error;
-          console.log(`Gateway ${gateway} failed, trying next one...`);
+          writer.on("error", reject);
+          response.data.pipe(writer);
+        });
 
-          // Only rollback if there's a database-related error
-          if (
-            error.message.includes("database") ||
-            error.message.includes("sql")
-          ) {
-            await client.query("ROLLBACK");
-            throw error; // Re-throw database errors immediately
-          }
+        // If we get here, everything succeeded
+        await client.query("COMMIT");
+        return result as string;
+      } catch (error: any) {
+        lastError = error;
+        console.log(`Gateway ${gateway} failed, trying next one...`);
 
-          continue; // Continue to next gateway for non-database errors
+        // Only rollback if there's a database-related error
+        if (
+          error.message.includes("database") ||
+          error.message.includes("sql")
+        ) {
+          await client.query("ROLLBACK");
+          throw error; // Re-throw database errors immediately
         }
-      }
 
-      // If we get here, all gateways failed
-      await client.query("ROLLBACK");
-      throw lastError || new Error("All gateways failed");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+        continue; // Continue to next gateway for non-database errors
+      }
     }
-  });
+
+    // If we get here, all gateways failed
+    await client.query("ROLLBACK");
+    throw lastError || new Error("All gateways failed");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
 }
 
 async function determineCategory(contents: any[]): Promise<string | null> {
@@ -453,21 +451,16 @@ async function processIPFSItem(
 
         // Queue the database operation
         await dbQueue.add(async () => {
-          return executeQuery(async (client) => {
-            await client.query("BEGIN");
-            try {
-              await downloadIPFSFile(
-                item.hash,
-                item.name,
-                outputDir,
-                componentId
-              );
-              await client.query("COMMIT");
-            } catch (error) {
-              await client.query("ROLLBACK");
-              throw error;
-            }
-          });
+          try {
+            await downloadIPFSFile(
+              item.hash,
+              item.name,
+              outputDir,
+              componentId
+            );
+          } catch (error) {
+            throw error;
+          }
         });
       }
     }
