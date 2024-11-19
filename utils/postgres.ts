@@ -19,7 +19,7 @@ const createPool = (() => {
           rejectUnauthorized: false,
         },
         max: 25, // Limit maximum connections
-        idleTimeoutMillis: 60000, // Close idle connections after 60 seconds
+        idleTimeoutMillis: 120000, // Close idle connections after 60 seconds
       });
 
       // Handle pool errors
