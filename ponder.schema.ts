@@ -33,6 +33,8 @@ export const Service = onchainTable(
     chainIdx: index().on(table.chain),
     packageHashIdx: index().on(table.packageHash),
     metadataHashIdx: index().on(table.metadataHash),
+    timestampIdx: index().on(table.timestamp),
+    blockNumberIdx: index().on(table.blockNumber),
   })
 );
 
@@ -55,6 +57,8 @@ export const Agent = onchainTable(
     packageHashIdx: index().on(table.packageHash),
     metadataHashIdx: index().on(table.metadataHash),
     operatorIdx: index().on(table.operator),
+    timestampIdx: index().on(table.timestamp),
+    blockNumberIdx: index().on(table.blockNumber),
   })
 );
 
@@ -75,6 +79,8 @@ export const Component = onchainTable(
     instanceIdx: index().on(table.instance),
     packageHashIdx: index().on(table.packageHash),
     metadataHashIdx: index().on(table.metadataHash),
+    timestampIdx: index().on(table.timestamp),
+    blockNumberIdx: index().on(table.blockNumber),
   })
 );
 
