@@ -127,6 +127,7 @@ async function downloadIPFSFile(
     await client.query("BEGIN");
     const checkQuery = `SELECT 1 FROM code_embeddings WHERE component_id = $1 AND file_path = $2`;
     const result = await client.query(checkQuery, [componentId, outputPath]);
+    console.log("Check query result:", result.rows);
     if (result.rows.length > 0) {
       console.log(`File ${fileName} already exists in the database`);
       client.release();
