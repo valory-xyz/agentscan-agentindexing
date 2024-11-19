@@ -146,6 +146,7 @@ async function downloadIPFSFile(
       let receivedData = false;
 
       response.data.on("data", () => {
+        console.log("Received data");
         receivedData = true;
       });
 
@@ -158,8 +159,10 @@ async function downloadIPFSFile(
               await fs.unlink(outputPath);
               return resolve(outputPath);
             }
+            console.log("Code content received");
 
             const embedding = await generateEmbeddingWithRetry(codeContent);
+            console.log("Embedding received");
             if (!embedding) {
               console.error("No embedding received");
               await fs.unlink(outputPath);
@@ -182,17 +185,18 @@ async function downloadIPFSFile(
                 code_content = EXCLUDED.code_content;
             `;
 
-            await client.query(insertQuery, [
+            const result = await client.query(insertQuery, [
               componentId,
               relativePath,
               embedding,
               codeContent,
             ]);
-
+            console.log("Insert query result:", result.rows);
             const reindexQuery = `
               REINDEX INDEX code_embeddings_embedding_idx;
             `;
-            await client.query(reindexQuery);
+            const reindexResult = await client.query(reindexQuery);
+            console.log("Reindex query result:", reindexResult.rows);
 
             await client.query("COMMIT");
 
