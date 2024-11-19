@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosResponse } from "axios";
+import axios from "axios";
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
@@ -8,8 +8,6 @@ import {
   splitTextIntoChunks,
 } from "./openai";
 import { executeQuery } from "./postgres";
-
-import { PoolClient } from "pg";
 import pQueue from "p-queue";
 
 // Configure axios defaults
@@ -444,13 +442,12 @@ async function processCodeContent(
   relativePath: string,
   cleanedCodeContent: string
 ): Promise<void> {
-  return dbQueue.add(async () => {
-    const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
+  const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
 
-    if (!Array.isArray(embeddings) || embeddings.length === 1) {
-      console.log("Processing as single embedding");
-      // Single embedding case - store as normal
-      const mainInsertQuery = `
+  if (!Array.isArray(embeddings) || embeddings.length === 1) {
+    console.log("Processing as single embedding");
+    // Single embedding case - store as normal
+    const mainInsertQuery = `
         INSERT INTO code_embeddings (
           component_id,
           file_path,
@@ -465,7 +462,7 @@ async function processCodeContent(
           embedding = EXCLUDED.embedding,
           updated_at = NOW()
       `;
-
+    return dbQueue.add(async () => {
       await executeQuery(async (client) => {
         await client.query(mainInsertQuery, [
           componentId,
@@ -474,18 +471,19 @@ async function processCodeContent(
           embeddings,
         ]);
       });
-    } else {
-      console.log("Processing as multiple embeddings");
+    });
+  } else {
+    console.log("Processing as multiple embeddings");
 
-      // Multiple embeddings case
-      const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
+    // Multiple embeddings case
+    const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
 
-      for (let i = 0; i < embeddings.length; i++) {
-        const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
-        console.log(
-          `Processing chunk ${i + 1} of ${embeddings.length}: ${chunkPath}`
-        );
-        const chunkInsertQuery = `
+    for (let i = 0; i < embeddings.length; i++) {
+      const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
+      console.log(
+        `Processing chunk ${i + 1} of ${embeddings.length}: ${chunkPath}`
+      );
+      const chunkInsertQuery = `
           INSERT INTO code_embeddings (
             component_id,
             file_path,
@@ -503,7 +501,7 @@ async function processCodeContent(
             updated_at = NOW()
           RETURNING component_id, file_path
         `;
-
+      return dbQueue.add(async () => {
         const query = await executeQuery(async (client) => {
           return await client.query(chunkInsertQuery, [
             componentId,
@@ -518,7 +516,7 @@ async function processCodeContent(
           `Chunk inserted ${i + 1} of ${embeddings.length}:`,
           query.rows
         );
-      }
+      });
     }
-  });
+  }
 }
