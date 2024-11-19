@@ -558,13 +558,15 @@ async function processCodeContent(
         component_id,
         file_path,
         code_content,
-        embedding
-      ) VALUES ($1, $2, $3, $4)
+        embedding,
+        created_at,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, NOW(), NOW())
       ON CONFLICT (component_id, file_path) 
       DO UPDATE SET
         code_content = EXCLUDED.code_content,
-        embedding = EXCLUDED.embedding
-      RETURNING id;
+        embedding = EXCLUDED.embedding,
+        updated_at = NOW()
     `;
 
     await client.query(mainInsertQuery, [
@@ -587,12 +589,15 @@ async function processCodeContent(
           code_content,
           embedding,
           is_chunk,
-          original_file_path
-        ) VALUES ($1, $2, $3, $4, $5, $6)
+          original_file_path,
+          created_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
         ON CONFLICT (component_id, file_path) 
         DO UPDATE SET
           code_content = EXCLUDED.code_content,
-          embedding = EXCLUDED.embedding
+          embedding = EXCLUDED.embedding,
+          updated_at = NOW()
       `;
 
       await client.query(chunkInsertQuery, [
