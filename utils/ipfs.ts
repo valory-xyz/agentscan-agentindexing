@@ -263,6 +263,22 @@ async function downloadIPFSFile(
                   );
                   console.log("Cleaned code content:", cleanedCodeContent);
 
+                  // Add check for blocked content
+                  if (cleanedCodeContent.includes("Blocked content")) {
+                    console.log(
+                      "Blocked content detected, retrying download..."
+                    );
+                    await fs.unlink(outputPath).catch(console.error);
+                    if (attempt < maxRetries) {
+                      const result = await downloadWithRetry(attempt + 1);
+                      return resolve(result);
+                    } else {
+                      throw new Error(
+                        "Failed to download after all retries - Blocked content"
+                      );
+                    }
+                  }
+
                   const embedding = await generateEmbeddingWithRetry(
                     cleanedCodeContent
                   );
