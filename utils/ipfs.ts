@@ -14,18 +14,38 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500, // More specific status validat
 });
 
+const IPFS_GATEWAYS = [
+  "https://gateway.autonolas.tech",
+  "https://ipfs.io",
+  "https://cloudflare-ipfs.com",
+];
+
+let currentGatewayIndex = 0;
+
+function getNextGateway(): string | undefined {
+  if (IPFS_GATEWAYS.length === 0) {
+    throw new Error("No IPFS gateways configured");
+  }
+  const gateway = IPFS_GATEWAYS[currentGatewayIndex];
+
+  currentGatewayIndex = (currentGatewayIndex + 1) % IPFS_GATEWAYS.length;
+  return gateway;
+}
+
 async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
   try {
     // Extract just the CID from the full URL if a URL is passed
     console.log(`CID: ${cid}`);
-    const cleanCid = cid.replace("https://gateway.autonolas.tech/ipfs/", "");
-
-    // Using the IPFS HTTP API
-    const apiUrl = `https://gateway.autonolas.tech/api/v0/ls?arg=${cleanCid}`;
+    const cleanCid = cid.replace(/^https:\/\/[^/]+\/ipfs\//, "");
 
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const gateway = getNextGateway();
+      console.log(`Gateway: ${gateway}`);
+      const apiUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
+
       try {
+        console.log(`Attempting with gateway: ${gateway}`);
         const response = await axiosInstance.get(apiUrl);
 
         if (response.data && response.data.Objects) {
@@ -42,18 +62,8 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
         return [];
       } catch (error: any) {
         lastError = error;
-        if (error.response?.status === 404) {
-          console.log(`Attempt ${attempt}/${maxRetries}: Got 404, retrying...`);
-
-          // Exponential backoff with jitter
-          const baseDelay = Math.min(1000 * Math.pow(2, attempt), 10000);
-          const jitter = Math.random() * 1000;
-          const delay = baseDelay + jitter;
-
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-        throw error; // If it's not a 404, throw immediately
+        console.log(`Gateway ${gateway} failed, trying next one...`);
+        continue;
       }
     }
 
@@ -124,137 +134,156 @@ async function downloadIPFSFile(
       .replace(/…/g, "");
     console.log("Encoded hash:", encodedHash);
 
-    const fileUrl = `https://gateway.autonolas.tech/ipfs/${encodedHash}`;
-    console.log(`Downloading from ${fileUrl}`);
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const gateway = getNextGateway();
+      const fileUrl = `${gateway}/ipfs/${encodedHash}`;
+      console.log(`Gateway: ${gateway}`);
+      console.log(`Attempting download from ${fileUrl}`);
 
-    // Add timeout to axios request
-    const response = await axiosInstance({
-      method: "get",
-      url: fileUrl,
-      responseType: "stream",
-    });
+      try {
+        const response = await axiosInstance({
+          method: "get",
+          url: fileUrl,
+          responseType: "stream",
+        });
 
-    await fs.mkdir(outputDir, { recursive: true });
-    const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
-    const outputPath = path.join(outputDir, sanitizedFileName);
-    //check if the file already is in the database
-    client = await pool.connect();
-    await client.query("BEGIN");
-    const checkQuery = `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`;
-    const result = await client.query(checkQuery, [componentId, outputPath]);
-    console.log("Check query result:", result.rows);
-    if (result.rows.length > 0) {
-      console.log(`File ${fileName} already exists in the database`);
-      client.release();
-      return outputPath;
+        await fs.mkdir(outputDir, { recursive: true });
+        const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
+        const outputPath = path.join(outputDir, sanitizedFileName);
+        //check if the file already is in the database
+        client = await pool.connect();
+        await client.query("BEGIN");
+        const checkQuery = `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`;
+        const result = await client.query(checkQuery, [
+          componentId,
+          outputPath,
+        ]);
+        console.log("Check query result:", result.rows);
+        if (result.rows.length > 0) {
+          console.log(`File ${fileName} already exists in the database`);
+          client.release();
+          return outputPath;
+        }
+        const relativePath = path.relative("./downloads", outputPath);
+
+        const downloadWithRetry = async (attempt = 1): Promise<any> => {
+          return new Promise((resolve, reject) => {
+            const writer = fsSync.createWriteStream(outputPath);
+            let receivedData = false;
+            let timeoutId: NodeJS.Timeout;
+
+            // Set a timeout for the download
+            timeoutId = setTimeout(async () => {
+              console.log(
+                `Download timed out for ${fileName} after 20 seconds`
+              );
+              writer.end();
+              await fs.unlink(outputPath).catch(console.error);
+
+              if (attempt < maxRetries) {
+                console.log(
+                  `Retrying download attempt ${attempt + 1}/${maxRetries}`
+                );
+                const result = await downloadWithRetry(attempt + 1);
+                resolve(result);
+              } else {
+                reject(
+                  new Error(`Failed to download after ${maxRetries} attempts`)
+                );
+              }
+            }, 20000); // 20 second timeout
+
+            response.data.on("data", () => {
+              console.log("Received data");
+              receivedData = true;
+            });
+
+            writer.on("finish", async () => {
+              clearTimeout(timeoutId);
+              try {
+                if (receivedData) {
+                  const codeContent = await fs.readFile(outputPath, "utf-8");
+                  if (!codeContent) {
+                    console.error("No code content received");
+                    await fs.unlink(outputPath);
+                    return resolve(outputPath);
+                  }
+                  console.log("Code content received");
+
+                  const embedding = await generateEmbeddingWithRetry(
+                    codeContent
+                  );
+                  console.log("Embedding received");
+                  if (!embedding) {
+                    console.error("No embedding received");
+                    await fs.unlink(outputPath);
+                    return resolve(outputPath);
+                  }
+
+                  client = await pool.connect();
+                  await client.query("BEGIN");
+
+                  const insertQuery = `
+                    INSERT INTO code_embeddings (
+                      component_id,
+                      file_path,
+                      embedding,
+                      code_content
+                    ) VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (component_id, file_path) 
+                    DO UPDATE SET
+                      embedding = EXCLUDED.embedding,
+                      code_content = EXCLUDED.code_content;
+                  `;
+
+                  const result = await client.query(insertQuery, [
+                    componentId,
+                    relativePath,
+                    embedding,
+                    codeContent,
+                  ]);
+
+                  await client.query("COMMIT");
+
+                  await fs.unlink(outputPath);
+                  console.log(`Deleted file: ${outputPath}`);
+                  return resolve(outputPath);
+                } else {
+                  await fs.unlink(outputPath);
+                  resolve(outputPath);
+                }
+              } catch (error) {
+                console.log("Error in writer finish handler:", error);
+                await fs.unlink(outputPath).catch(console.error);
+                if (client) {
+                  await client.query("ROLLBACK").catch(console.error);
+                  client.release();
+                }
+                resolve(outputPath);
+              }
+            });
+
+            writer.on("error", async (err) => {
+              clearTimeout(timeoutId);
+              console.log("Write stream error:", err);
+              await fs.unlink(outputPath).catch(console.error);
+              reject(err);
+            });
+
+            response.data.pipe(writer);
+          });
+        };
+
+        return await downloadWithRetry();
+      } catch (error: any) {
+        lastError = error;
+        console.log(`Gateway ${gateway} failed, trying next one...`);
+        continue;
+      }
     }
-    const relativePath = path.relative("./downloads", outputPath);
 
-    const downloadWithRetry = async (attempt = 1): Promise<any> => {
-      return new Promise((resolve, reject) => {
-        const writer = fsSync.createWriteStream(outputPath);
-        let receivedData = false;
-        let timeoutId: NodeJS.Timeout;
-
-        // Set a timeout for the download
-        timeoutId = setTimeout(async () => {
-          console.log(`Download timed out for ${fileName} after 20 seconds`);
-          writer.end();
-          await fs.unlink(outputPath).catch(console.error);
-
-          if (attempt < maxRetries) {
-            console.log(
-              `Retrying download attempt ${attempt + 1}/${maxRetries}`
-            );
-            const result = await downloadWithRetry(attempt + 1);
-            resolve(result);
-          } else {
-            reject(
-              new Error(`Failed to download after ${maxRetries} attempts`)
-            );
-          }
-        }, 20000); // 20 second timeout
-
-        response.data.on("data", () => {
-          console.log("Received data");
-          receivedData = true;
-        });
-
-        writer.on("finish", async () => {
-          clearTimeout(timeoutId);
-          try {
-            if (receivedData) {
-              const codeContent = await fs.readFile(outputPath, "utf-8");
-              if (!codeContent) {
-                console.error("No code content received");
-                await fs.unlink(outputPath);
-                return resolve(outputPath);
-              }
-              console.log("Code content received");
-
-              const embedding = await generateEmbeddingWithRetry(codeContent);
-              console.log("Embedding received");
-              if (!embedding) {
-                console.error("No embedding received");
-                await fs.unlink(outputPath);
-                return resolve(outputPath);
-              }
-
-              client = await pool.connect();
-              await client.query("BEGIN");
-
-              const insertQuery = `
-                INSERT INTO code_embeddings (
-                  component_id,
-                  file_path,
-                  embedding,
-                  code_content
-                ) VALUES ($1, $2, $3, $4)
-                ON CONFLICT (component_id, file_path) 
-                DO UPDATE SET
-                  embedding = EXCLUDED.embedding,
-                  code_content = EXCLUDED.code_content;
-              `;
-
-              const result = await client.query(insertQuery, [
-                componentId,
-                relativePath,
-                embedding,
-                codeContent,
-              ]);
-
-              await client.query("COMMIT");
-
-              await fs.unlink(outputPath);
-              console.log(`Deleted file: ${outputPath}`);
-              return resolve(outputPath);
-            } else {
-              await fs.unlink(outputPath);
-              resolve(outputPath);
-            }
-          } catch (error) {
-            console.log("Error in writer finish handler:", error);
-            await fs.unlink(outputPath).catch(console.error);
-            if (client) {
-              await client.query("ROLLBACK").catch(console.error);
-              client.release();
-            }
-            resolve(outputPath);
-          }
-        });
-
-        writer.on("error", async (err) => {
-          clearTimeout(timeoutId);
-          console.log("Write stream error:", err);
-          await fs.unlink(outputPath).catch(console.error);
-          reject(err);
-        });
-
-        response.data.pipe(writer);
-      });
-    };
-
-    return await downloadWithRetry();
+    throw lastError || new Error("All gateways failed");
   } catch (error: any) {
     console.error("Download failed:", error.message);
     if (client) {
