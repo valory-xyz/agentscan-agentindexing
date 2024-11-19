@@ -54,7 +54,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
 
         // If Objects is missing, treat as an error and retry
         console.log(`No Objects found in response, retrying...`);
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        const delay = Math.min(1000 * Math.pow(1.5, attempt - 1), 4000);
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       } catch (error: any) {
@@ -62,7 +62,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         console.log(
           `Gateway ${gateway} failed, attempt ${attempt}/${maxRetries}`
         );
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        const delay = Math.min(1000 * Math.pow(1.5, attempt - 1), 4000);
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
@@ -77,7 +77,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
 export async function generateEmbeddingWithRetry(
   text: string,
   maxRetries: number = 3,
-  initialDelay: number = 400
+  initialDelay: number = 200
 ): Promise<number[] | undefined> {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -101,7 +101,7 @@ export async function generateEmbeddingWithRetry(
 
       // Calculate delay with exponential backoff and jitter
       const delay =
-        initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
+        initialDelay * Math.pow(1.5, attempt - 1) + Math.random() * 100;
       console.log(
         `Embedding generation attempt ${attempt} failed. Retrying in ${delay}ms...`
       );
