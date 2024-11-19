@@ -60,6 +60,9 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       });
 
       if (response.data?.Objects?.[0]?.Links) {
+        console.log(
+          `Found ${response.data.Objects[0].Links.length} items in /ls response`
+        );
         return response.data.Objects[0].Links.map((item: any) => ({
           name: item.Name,
           hash: item.Hash,
