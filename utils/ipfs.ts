@@ -46,20 +46,37 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         throw new Error("No available gateways");
       }
 
-      const apiUrl = `${gateway}/api/v0/dag/get?arg=${cleanCid}`;
+      // First try /ls endpoint as it's more reliable for directories
+      const apiUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
       const response = await axiosInstance.get(apiUrl);
 
-      if (response.data?.links) {
-        return response.data.links.map((item: any) => ({
-          name: item.name,
-          hash: item.cid["/"],
-          size: item.size,
-          isDirectory: item.type === 1 || item.type === "dir",
+      if (response.data?.Objects?.[0]?.Links) {
+        return response.data.Objects[0].Links.map((item: any) => ({
+          name: item.Name,
+          hash: item.Hash,
+          size: item.Size,
+          type: item.Type,
+          isDirectory: item.Type === 1 || item.Type === "dir",
         }));
       }
 
-      // If links is missing, treat as an error and retry
-      console.log(`No links found in response, retrying...`, apiUrl);
+      // Fallback to /dag/get if /ls fails
+      const dagUrl = `${gateway}/api/v0/dag/get?arg=${cleanCid}`;
+      const dagResponse = await axiosInstance.get(dagUrl);
+      console.log(`Response for dag ${dagUrl}:`, dagResponse.data);
+
+      if (dagResponse.data?.Links) {
+        return dagResponse.data.Links.map((item: any) => ({
+          name: item.Name,
+          hash: item.Hash || item.Cid["/"],
+          size: item.Size || item.Tsize,
+          type: item.Type,
+          isDirectory: item.Type === 1 || item.Type === "dir",
+        }));
+      }
+
+      // If both attempts fail, retry with delay
+      console.log(`No valid directory structure found, retrying...`);
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
@@ -67,7 +84,8 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
     } catch (error: any) {
       lastError = error;
       console.log(
-        `Gateway ${gateway} failed, attempt ${attempts}/${maxRetries}`
+        `Gateway ${gateway} failed, attempt ${attempts}/${maxRetries}:`,
+        error.message
       );
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -75,7 +93,10 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       continue;
     }
   }
-  throw lastError || new Error("No valid links found after all retries");
+  throw (
+    lastError ||
+    new Error("No valid directory structure found after all retries")
+  );
 }
 
 // Simplify the status enum
