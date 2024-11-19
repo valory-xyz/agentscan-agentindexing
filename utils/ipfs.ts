@@ -59,6 +59,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         transformResponse: [(data) => data],
       });
 
+      console.log(`Response: ${response.data}`);
       // Parse the response manually to handle both string and object responses
       let parsedData;
       try {
@@ -70,7 +71,6 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         console.log("Failed to parse directory response:", e);
         throw new Error("Invalid directory response format");
       }
-      console.log(`Parsed data: ${parsedData}`);
 
       // Check for valid DAG-JSON directory structure
       if (parsedData?.Objects?.[0]?.Links) {
