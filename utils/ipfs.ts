@@ -191,19 +191,9 @@ async function downloadIPFSFile(
               embedding,
               codeContent,
             ]);
-            console.log("Insert query result:", result.rows);
-            // Simple reindex without CONCURRENTLY
-            const reindexQuery = `
-                  SET statement_timeout = 0;  -- Disable timeout
-                  REINDEX INDEX code_embeddings_embedding_idx;
-                `;
-            void client.query(reindexQuery);
 
             await client.query("COMMIT");
 
-            console.log(
-              `Processed, stored, and reindexed embedding for ${fileName}`
-            );
             await fs.unlink(outputPath);
             console.log(`Deleted file: ${outputPath}`);
             return resolve(outputPath);
