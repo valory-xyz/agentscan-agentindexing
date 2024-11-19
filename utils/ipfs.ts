@@ -46,7 +46,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
 
       const response = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
         headers: {
-          Accept: "application/vnd.ipld.dag-json",
+          Accept: "application/vnd.ipld.dag-json, application/json",
           "X-Content-Type-Options": "nosniff",
         },
         params: {
@@ -54,30 +54,40 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         },
       });
 
-      if (
-        typeof response.data === "string" &&
-        (response.data.includes("<!DOCTYPE html>") ||
+      if (typeof response.data === "string") {
+        if (
+          response.data.includes("ipfs cat") ||
+          response.data.includes("Error:")
+        ) {
+          console.log(`Error message detected in response: ${response.data}`);
+          throw new Error("Invalid response format from gateway");
+        }
+
+        if (
+          response.data.includes("<!DOCTYPE html>") ||
           response.data.includes("<html>") ||
-          response.data.toLowerCase().includes("<!doctype html>"))
-      ) {
-        console.log(`HTML content detected in directory response, retrying...`);
-        throw new Error("HTML content received instead of directory data");
+          response.data.toLowerCase().includes("<!doctype html>")
+        ) {
+          console.log(
+            `HTML content detected in directory response, retrying...`
+          );
+          throw new Error("HTML content received instead of directory data");
+        }
       }
 
-      // Parse the response manually to handle both string and object responses
       let parsedData;
       try {
         parsedData =
           typeof response.data === "string"
             ? JSON.parse(response.data)
             : response.data;
-      } catch (e) {
+      } catch (e: any) {
         console.log("Failed to parse directory response:", e);
-        throw new Error("Invalid directory response format");
+        console.log("Raw response:", response.data);
+        throw new Error(`Invalid directory response format: ${e.message}`);
       }
       console.log(`Parsed data:`, parsedData);
 
-      // Check for valid DAG-JSON directory structure
       if (parsedData?.Objects?.[0]?.Links) {
         console.log("parsedData", parsedData?.Objects?.[0]?.Links);
         console.log(
@@ -85,14 +95,13 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         );
         return parsedData.Objects[0].Links.map((item: any) => ({
           name: item.Name,
-          hash: item.Hash["/"], // Handle DAG-JSON CID format
+          hash: item.Hash["/"],
           size: item.Size,
           type: item.Type,
           isDirectory: item.Type === 1 || item.Type === "dir",
         }));
       }
 
-      // Add new check for alternative directory structure
       if (parsedData?.Links) {
         console.log("parsedData", parsedData.Links);
         console.log(
@@ -100,7 +109,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         );
         return parsedData.Links.map((item: any) => ({
           name: item.Name,
-          hash: item.Hash["/"], // Handle DAG-JSON CID format
+          hash: item.Hash["/"],
           size: item.Tsize,
           type: item.Type,
           isDirectory: item.Type === 1 || item.Type === "dir",
@@ -118,8 +127,18 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       lastError = error;
       console.log(
         `Gateway ${gateway} failed, attempt ${attempts}/${maxRetries}:`,
-        error.message
+        error.message,
+        error.response?.data || ""
       );
+
+      if (
+        error.message.includes("Invalid response format") ||
+        error.message.includes("Invalid directory response format")
+      ) {
+        attempts++;
+        continue;
+      }
+
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
