@@ -125,16 +125,15 @@ async function downloadIPFSFile(
   maxRetries: number = 3
 ): Promise<string | null> {
   let client: PoolClient | undefined;
+  let relativePath: string = path.relative(
+    "./downloads",
+    path.join(outputDir, fileName)
+  );
 
   try {
     // Initialize status tracking
     client = await pool.connect();
     await client.query("BEGIN");
-
-    const relativePath = path.relative(
-      "./downloads",
-      path.join(outputDir, fileName)
-    );
 
     // Update or insert processing status
     const statusQuery = `
@@ -239,84 +238,71 @@ async function downloadIPFSFile(
 
             writer.on("finish", async () => {
               clearTimeout(timeoutId);
+              if (!client) {
+                throw new Error("Database client is not initialized");
+              }
               try {
                 if (receivedData) {
                   const codeContent = await fs.readFile(outputPath, "utf-8");
+
                   if (!codeContent) {
-                    console.error("No code content received");
-                    await fs.unlink(outputPath);
-                    return resolve(outputPath);
+                    throw new Error("Invalid code content");
                   }
-                  console.log("Code content received");
 
                   const embedding = await generateEmbeddingWithRetry(
                     codeContent
                   );
-                  console.log("Embedding received", embedding);
+
                   if (!embedding) {
-                    console.error("No embedding received");
-                    await fs.unlink(outputPath);
-                    return resolve(outputPath);
+                    throw new Error("Invalid embedding generated");
                   }
 
-                  // Get a new client connection if needed
-                  if (!client) {
-                    client = await pool.connect();
-                  }
-
-                  try {
-                    await client.query("BEGIN");
-                    console.log("Starting database transaction");
-
-                    const insertQuery = `
-                      INSERT INTO code_embeddings (
-                        component_id,
-                        file_path,
-                        embedding,
-                        code_content
-                      ) VALUES ($1, $2, $3, $4)
-                      ON CONFLICT (component_id, file_path) 
-                      DO UPDATE SET
-                        embedding = EXCLUDED.embedding,
-                        code_content = EXCLUDED.code_content
-                      RETURNING *;
-                    `;
-
-                    const result = await client.query(insertQuery, [
-                      componentId,
-                      relativePath,
+                  // Update database
+                  const insertQuery = `
+                    INSERT INTO code_embeddings (
+                      component_id,
+                      file_path,
                       embedding,
-                      codeContent,
-                    ]);
+                      code_content
+                    ) VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (component_id, file_path) 
+                    DO UPDATE SET
+                      embedding = EXCLUDED.embedding,
+                      code_content = EXCLUDED.code_content
+                    RETURNING *;
+                  `;
 
-                    console.log("Insert query parameters:", {
-                      componentId,
-                      relativePath,
-                      embeddingLength: embedding.length,
-                      contentLength: codeContent.length,
-                    });
+                  await client.query(insertQuery, [
+                    componentId,
+                    relativePath,
+                    embedding,
+                    codeContent,
+                  ]);
 
-                    await client.query("COMMIT");
-                    console.log("Database transaction committed successfully");
-                  } catch (dbError) {
-                    console.error("Database error:", dbError);
-                    await client.query("ROLLBACK");
-                    throw dbError;
-                  }
+                  // Update status to completed
+                  await client.query(
+                    `UPDATE code_processing_status 
+                     SET status = $1, error_message = NULL 
+                     WHERE component_id = $2 AND file_path = $3`,
+                    [ProcessingStatus.COMPLETED, componentId, relativePath]
+                  );
 
-                  await fs.unlink(outputPath);
-                  return resolve(outputPath);
+                  await client.query("COMMIT");
                 }
-              } catch (error) {
-                console.error("Error in writer finish handler:", error);
-                if (client) {
-                  await client.query("ROLLBACK").catch(console.error);
-                }
-                reject(error);
-              } finally {
-                if (client) {
-                  client.release();
-                }
+              } catch (error: any) {
+                await client.query(
+                  `UPDATE code_processing_status 
+                   SET status = $1, error_message = $2 
+                   WHERE component_id = $3 AND file_path = $4`,
+                  [
+                    ProcessingStatus.FAILED,
+                    error.message,
+                    componentId,
+                    relativePath,
+                  ]
+                );
+                await client.query("ROLLBACK");
+                throw error;
               }
             });
 
@@ -343,7 +329,13 @@ async function downloadIPFSFile(
   } catch (error: any) {
     console.error("Download failed:", error.message);
     if (client) {
-      await client.query("ROLLBACK").catch(console.error);
+      await client.query(
+        `UPDATE code_processing_status 
+         SET status = $1, error_message = $2 
+         WHERE component_id = $3 AND file_path = $4`,
+        [ProcessingStatus.FAILED, error.message, componentId, relativePath]
+      );
+      await client.query("ROLLBACK");
       client.release();
     }
     throw error;
