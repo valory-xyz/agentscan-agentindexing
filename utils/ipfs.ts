@@ -200,7 +200,6 @@ async function downloadIPFSFile(
   );
 
   try {
-    await client.query("BEGIN");
     console.log(`Starting download for ${fileName}...`);
 
     // Simplified status tracking
@@ -348,25 +347,9 @@ async function downloadIPFSFile(
                 `,
                     [ProcessingStatus.COMPLETED, componentId, relativePath]
                   );
-                  await client.query("COMMIT");
-                } catch (error: any) {
+                } catch (error) {
                   console.error(`Error processing ${fileName}:`, error);
-
-                  await client.query(
-                    `
-                    UPDATE code_processing_status 
-                    SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
-                    WHERE component_id = $3 AND file_path = $4
-                  `,
-                    [
-                      ProcessingStatus.FAILED,
-                      error?.message || "Unknown error",
-                      componentId,
-                      relativePath,
-                    ]
-                  );
-                  await client.query("COMMIT");
-                  reject(error);
+                  throw error;
                 }
 
                 console.log(`Database operations completed for ${fileName}`);
@@ -401,8 +384,7 @@ async function downloadIPFSFile(
     throw lastError || new Error("All gateways failed");
   } catch (error: any) {
     console.error(`Download failed for ${fileName}:`, error.message);
-
-    try {
+    if (client) {
       await client.query(
         `
         UPDATE code_processing_status 
@@ -412,14 +394,14 @@ async function downloadIPFSFile(
         [ProcessingStatus.FAILED, error.message, componentId, relativePath]
       );
       await client.query("ROLLBACK");
-    } catch (rollbackError) {
-      console.error("Error during rollback:", rollbackError);
+      client.release();
     }
-
     throw error;
   } finally {
     console.log(`Cleanup for ${fileName}`);
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
 
@@ -449,11 +431,15 @@ async function processIPFSItem(
     }
 
     if (item.isDirectory) {
-      // Directory processing remains the same
+      // Get contents of this directory
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
       const contents = await readIPFSDirectory(dirUrl);
+
+      // Determine category from YAML files
       const category = await determineCategory(contents);
 
+      console.log("Category:", category);
+      // Create the new path, including category if found
       let newPath;
       if (category) {
         newPath = path.join(category, item.name);
@@ -462,39 +448,30 @@ async function processIPFSItem(
       }
 
       const outputDir = path.join("./downloads", newPath);
+
       console.log(`Entering directory: ${newPath}`);
       await fs.mkdir(outputDir, { recursive: true });
 
-      // Process each item in directory independently to avoid transaction issues
+      // Recursively process directory contents
       for (const content of contents) {
-        try {
-          await processIPFSItem(content, newPath, retryAttempts, componentId);
-        } catch (contentError) {
-          // Log error but continue processing other items
-          console.error(`Error processing ${content.name}:`, contentError);
-          continue;
-        }
+        await processIPFSItem(content, newPath, retryAttempts, componentId);
       }
     } else {
+      // Update file extension check to include README.md
       if (
         item.name.endsWith(".py") ||
         item.name.endsWith(".proto") ||
         item.name.toLowerCase() === "readme.md"
       ) {
         const outputDir = path.join("./downloads", currentPath);
-        try {
-          await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
-        } catch (downloadError) {
-          console.error(`Failed to download ${item.name}:`, downloadError);
-          // Don't rethrow - allow processing to continue for other files
-        }
+
+        await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
       } else {
         console.log("Skipping non-supported file:", item.name);
       }
     }
   } catch (error: any) {
-    console.error(`Error processing item ${item.name}:`, error.message);
-    // Don't rethrow - return null to indicate failure but allow continued processing
+    console.log(`Error processing item ${item.name}:`, error.message);
     return null;
   }
 }
