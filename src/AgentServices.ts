@@ -95,11 +95,9 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
         }
       }
     } catch (e) {
-      console.log("error processing dependencies:", e);
+      // console.log("error processing dependencies:", e);
     }
-  } catch (e) {
-    console.error("Error processing CreateUnit:", e);
-  }
+  } catch (e) {}
 });
 
 ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
@@ -167,7 +165,7 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
       });
     }
   } catch (e) {
-    console.error("Error in ComponentRegistry:CreateUnit:", e);
+    // console.error("Error in ComponentRegistry:CreateUnit:", e);
   }
 
   //call
@@ -206,7 +204,7 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
       }
     }
   } catch (e) {
-    console.log("error processing dependencies:", e);
+    // console.log("error processing dependencies:", e);
   }
 });
 
@@ -261,7 +259,7 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
       metadataURI: metadataJson?.metadataURI,
     });
   } catch (e) {
-    console.error("Error in UpdateUnitHash handler for Agent:", e);
+    // console.error("Error in UpdateUnitHash handler for Agent:", e);
   }
 });
 
@@ -286,7 +284,7 @@ ponder.on(
         metadataURI: metadataJson?.metadataURI,
       });
     } catch (e) {
-      console.error("Error in UpdateUnitHash handler for Component:", e);
+      // console.error("Error in UpdateUnitHash handler for Component:", e);
     }
   }
 );
@@ -333,7 +331,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         packageHash,
         metadataURI: metadataJson?.metadataURI,
       });
-      console.error("Error in CreateService handler:", e);
+      // console.error("Error in CreateService handler:", e);
     }
   });
 
@@ -405,7 +403,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         agentId,
       });
     } catch (e) {
-      console.error("Error in RegisterInstance handler:", e);
+      // console.error("Error in RegisterInstance handler:", e);
     }
   });
 
@@ -450,7 +448,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         metadataURI: metadataJson?.metadataURI,
       });
     } catch (e) {
-      console.error("Error in UpdateService handler:", e);
+      // console.error("Error in UpdateService handler:", e);
     }
   });
 });
