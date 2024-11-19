@@ -14,12 +14,7 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500, // More specific status validat
 });
 
-const IPFS_GATEWAYS = [
-  "https://gateway.autonolas.tech",
-  "https://ipfs.io",
-  "https://flk-ipfs.xyz",
-  "https://dweb.link",
-];
+const IPFS_GATEWAYS = ["https://gateway.autonolas.tech", "https://ipfs.io"];
 
 let currentGatewayIndex = 0;
 
@@ -46,7 +41,9 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         console.log(
           `Attempt ${attempt}/${maxRetries} with gateway: ${gateway}`
         );
-        const response = await axiosInstance.get(apiUrl);
+        const response = await axiosInstance.get(apiUrl, {
+          timeout: 25000,
+        });
 
         if (response.data?.Objects?.[0]?.Links) {
           return response.data.Objects[0].Links.map((item: any) => ({
@@ -270,12 +267,31 @@ async function downloadIPFSFile(
                     );
                     await fs.unlink(outputPath).catch(console.error);
                     if (attempt < maxRetries) {
-                      const result = await downloadWithRetry(attempt + 1);
-                      return resolve(result);
+                      console.log(
+                        `Initiating retry attempt ${attempt + 1}/${maxRetries}`
+                      );
+                      try {
+                        const result = await downloadWithRetry(attempt + 1);
+                        console.log(
+                          `Retry attempt ${attempt + 1} completed successfully`
+                        );
+                        resolve(result);
+                        return; // Important: return here to prevent further execution
+                      } catch (retryError) {
+                        console.error(
+                          `Retry attempt ${attempt + 1} failed:`,
+                          retryError
+                        );
+                        reject(retryError);
+                        return;
+                      }
                     } else {
-                      throw new Error(
+                      const error = new Error(
                         "Failed to download after all retries - Blocked content"
                       );
+                      console.error(error.message);
+                      reject(error);
+                      return;
                     }
                   }
 
