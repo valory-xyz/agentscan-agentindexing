@@ -46,9 +46,16 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         throw new Error("No available gateways");
       }
 
-      // Request directory listing in DAG-JSON format
+      // Request directory listing in DAG-JSON format for programmatic consumption
       const response = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
-        headers: getContentTypeHeaders("dag-json"),
+        headers: {
+          Accept: "application/vnd.ipld.dag-json", // Request DAG-JSON instead of HTML
+          "Cache-Control": "only-if-cached",
+          "If-None-Match": "*",
+        },
+        params: {
+          format: "dag-json", // Explicitly request DAG-JSON format in URL
+        },
       });
 
       console.log(`Directory response: ${response.data}`);
@@ -152,7 +159,11 @@ async function downloadIPFSFile(
           params: {
             format: "raw", // Explicitly request raw format in URL
           },
-          headers: getContentTypeHeaders("raw"),
+          headers: {
+            Accept: "application/vnd.ipld.raw", // Request raw format in header
+            "Cache-Control": "only-if-cached",
+            "If-None-Match": "*",
+          },
         });
 
         if (!response.data) {
