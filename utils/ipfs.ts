@@ -46,20 +46,20 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         throw new Error("No available gateways");
       }
 
-      const apiUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
+      const apiUrl = `${gateway}/api/v0/dag/get?arg=${cleanCid}`;
       const response = await axiosInstance.get(apiUrl);
 
-      if (response.data?.Objects?.[0]?.Links) {
-        return response.data.Objects[0].Links.map((item: any) => ({
-          name: item.Name,
-          hash: item.Hash,
-          size: item.Size,
-          isDirectory: item.Type === 1 || item.Type === "dir",
+      if (response.data?.links) {
+        return response.data.links.map((item: any) => ({
+          name: item.name,
+          hash: item.cid["/"],
+          size: item.size,
+          isDirectory: item.type === 1 || item.type === "dir",
         }));
       }
 
-      // If Objects is missing, treat as an error and retry
-      console.log(`No Objects found in response, retrying...`, apiUrl);
+      // If links is missing, treat as an error and retry
+      console.log(`No links found in response, retrying...`, apiUrl);
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
@@ -75,7 +75,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       continue;
     }
   }
-  throw lastError || new Error("No valid Objects found after all retries");
+  throw lastError || new Error("No valid links found after all retries");
 }
 
 // Simplify the status enum
@@ -98,6 +98,7 @@ async function downloadIPFSFile(
   console.log(`Starting download for ${relativePath}...`);
 
   try {
+    // Check if already processed
     const checkResult = await executeQuery(async (client) => {
       return await client.query(
         `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
@@ -110,6 +111,7 @@ async function downloadIPFSFile(
       return fullPath;
     }
 
+    // Set initial processing status
     await executeQuery(async (client) => {
       await client.query(
         `
@@ -127,83 +129,63 @@ async function downloadIPFSFile(
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const gateway = getNextGateway();
-      const fileUrl = `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`;
+      if (!gateway) throw new Error("No available gateways");
 
       try {
+        // Use /cat endpoint for direct content retrieval
+        const apiUrl = `${gateway}/api/v0/cat?arg=${encodeURIComponent(
+          ipfsHash
+        )}`;
         const response = await axiosInstance({
           method: "get",
-          url: fileUrl,
-          responseType: "stream",
+          url: apiUrl,
+          responseType: "text",
+          headers: {
+            Accept: "text/plain",
+          },
         });
 
+        if (!response.data) {
+          throw new Error("No data received");
+        }
+
+        const codeContent = response.data;
+        const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
+
+        if (cleanedCodeContent.includes("Blocked content")) {
+          throw new Error("Blocked content detected");
+        }
+
+        // Ensure directory exists
         await fs.mkdir(outputDir, { recursive: true });
+
+        // Write file to disk (if needed)
         const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
         const outputPath = path.join(outputDir, sanitizedFileName);
+        await fs.writeFile(outputPath, codeContent);
 
-        // Process the download
-        const result = await new Promise((resolve, reject) => {
-          const writer = fsSync.createWriteStream(outputPath);
-          let receivedData = false;
-          let dataSize = 0;
+        // Process the content
+        await processCodeContent(componentId, relativePath, cleanedCodeContent);
 
-          response.data.on("data", (chunk: any) => {
-            dataSize += chunk.length;
-            receivedData = true;
-          });
-
-          writer.on("finish", async () => {
-            console.log(`Finished writing ${outputPath}`);
-            if (!receivedData) {
-              reject(new Error("No data received"));
-              return;
-            }
-
-            try {
-              const codeContent = await fs.readFile(outputPath, "utf-8");
-              if (!codeContent) {
-                throw new Error("Invalid code content");
-              }
-
-              const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
-
-              if (cleanedCodeContent.includes("Blocked content")) {
-                reject(new Error("Blocked content detected"));
-                return;
-              }
-
-              // Process the code content within the same transaction
-              await processCodeContent(
-                componentId,
-                relativePath,
-                cleanedCodeContent
-              );
-
-              // Update status to completed
-              await executeQuery(async (client) => {
-                await client.query(
-                  `
-                  UPDATE code_processing_status 
-                  SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
-                  WHERE component_id = $2 AND file_path = $3
-                `,
-                  [ProcessingStatus.COMPLETED, componentId, relativePath]
-                );
-              });
-
-              resolve(outputPath);
-            } catch (error) {
-              reject(error);
-            }
-          });
-
-          writer.on("error", reject);
-          response.data.pipe(writer);
+        // Update status to completed
+        await executeQuery(async (client) => {
+          await client.query(
+            `
+            UPDATE code_processing_status 
+            SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE component_id = $2 AND file_path = $3
+          `,
+            [ProcessingStatus.COMPLETED, componentId, relativePath]
+          );
         });
 
-        return result as string;
+        return outputPath;
       } catch (error: any) {
         lastError = error;
-        console.log(`Gateway ${gateway} failed, trying next one...`);
+        console.log(
+          `Gateway ${gateway} failed (attempt ${attempt}/${maxRetries}):`,
+          error.message
+        );
 
         if (
           error.message.includes("database") ||
@@ -212,15 +194,25 @@ async function downloadIPFSFile(
           throw error; // Re-throw database errors immediately
         }
 
-        // Add exponential backoff delay
-        const delay = Math.min(3000 * Math.pow(2, attempt - 1), 30000); // Max 1 minute delay
+        // Exponential backoff
+        const delay = Math.min(3000 * Math.pow(2, attempt - 1), 30000);
         await new Promise((resolve) => setTimeout(resolve, delay));
-        continue; // Continue to next gateway for non-database errors
       }
     }
 
     throw lastError || new Error("All gateways failed");
   } catch (error) {
+    // Update status to failed
+    await executeQuery(async (client) => {
+      await client.query(
+        `
+        UPDATE code_processing_status 
+        SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
+        WHERE component_id = $3 AND file_path = $4
+      `,
+        [ProcessingStatus.FAILED, error.message, componentId, relativePath]
+      );
+    });
     throw error;
   }
 }
