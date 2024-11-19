@@ -46,24 +46,32 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         throw new Error("No available gateways");
       }
 
-      const dagUrl = `${gateway}/api/v0/dag/get?arg=${cleanCid}`;
-      const response = await axiosInstance.get(dagUrl);
-      console.log(`Response for dag ${dagUrl}:`, response.data);
-      const hash = response.data?.Links?.[0]?.Hash;
-      console.log(`Hash for dag: ${hash}`);
+      // Use /ls endpoint with caching headers
+      const lsUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
+      const response = await axiosInstance.get(lsUrl, {
+        headers: {
+          Accept: "*/*",
+          "Cache-Control": "only-if-cached",
+          "If-None-Match": "*",
+        },
+        params: {
+          filename: `${cleanCid}.json`,
+        },
+      });
 
-      if (response.data?.Links) {
-        return response.data.Links.map((item: any) => ({
+      if (response.data?.Objects?.[0]?.Links) {
+        return response.data.Objects[0].Links.map((item: any) => ({
           name: item.Name,
-          hash: item.Hash["/"] || item.Hash,
-          size: item.Tsize,
-          type: response.data.Data?.["/"]?.bytes === "CAE" ? 1 : 0,
-          isDirectory: response.data.Data?.["/"]?.bytes === "CAE",
+          hash: item.Hash,
+          size: item.Size,
+          type: item.Type,
+          isDirectory: item.Type === 1 || item.Type === "dir",
         }));
       }
 
-      // If no valid response, retry with delay
-      console.log(`No valid directory structure found, retrying...`);
+      console.log(
+        `No valid directory structure found in /ls response, retrying...`
+      );
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
@@ -77,7 +85,6 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
-      continue;
     }
   }
   throw (
@@ -140,7 +147,7 @@ async function downloadIPFSFile(
       if (!gateway) throw new Error("No available gateways");
 
       try {
-        // Use /cat endpoint for direct content retrieval
+        // Use /cat endpoint with caching headers
         const apiUrl = `${gateway}/api/v0/cat?arg=${encodeURIComponent(
           ipfsHash
         )}`;
@@ -149,7 +156,12 @@ async function downloadIPFSFile(
           url: apiUrl,
           responseType: "text",
           headers: {
-            Accept: "text/plain",
+            Accept: "*/*",
+            "Cache-Control": "only-if-cached",
+            "If-None-Match": "*",
+          },
+          params: {
+            filename: fileName,
           },
         });
 
@@ -158,6 +170,7 @@ async function downloadIPFSFile(
         }
 
         const codeContent = response.data;
+        console.log(`Code content: ${codeContent}`);
         const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
 
         if (cleanedCodeContent.includes("Blocked content")) {
@@ -167,7 +180,7 @@ async function downloadIPFSFile(
         // Ensure directory exists
         await fs.mkdir(outputDir, { recursive: true });
 
-        // Write file to disk (if needed)
+        // Write file to disk
         const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
         const outputPath = path.join(outputDir, sanitizedFileName);
         await fs.writeFile(outputPath, codeContent);
