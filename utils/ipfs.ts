@@ -2,13 +2,13 @@ import axios, { AxiosInstance, AxiosResponse } from "axios";
 import fs from "fs/promises";
 import fsSync from "fs";
 import path from "path";
-import openai, {
+import {
   generateEmbeddingWithRetry,
   MAX_TOKENS,
   splitTextIntoChunks,
 } from "./openai";
 import { executeQuery } from "./postgres";
-import pgvector from "pgvector";
+
 import { PoolClient } from "pg";
 import pQueue from "p-queue";
 
@@ -380,7 +380,7 @@ async function determineCategory(contents: any[]): Promise<string | null> {
 }
 
 // Create a queue for database operations
-const dbQueue = new pQueue({ concurrency: 5 }); // Limit concurrent DB operations
+export const dbQueue = new pQueue({ concurrency: 5 }); // Limit concurrent DB operations
 
 // Update processIPFSItem to use queue
 async function processIPFSItem(

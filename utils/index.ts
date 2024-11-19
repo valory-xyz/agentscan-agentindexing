@@ -3,6 +3,7 @@ import { recursiveDownload } from "./ipfs";
 import pool, { executeQuery } from "./postgres";
 
 import { generateEmbeddingWithRetry } from "./openai";
+import { dbQueue } from "./ipfs";
 
 // Helper function to get chain name from contract name
 export const getChainName = (contractName: string) => {
@@ -149,36 +150,37 @@ export const fetchAndTransformMetadata = async (
       }
 
       try {
-        // Embedding storage logic
-        const id = `${configInfo.type}-${configInfo.id}`;
-        const checkQuery = `SELECT 1 FROM metadata_embeddings WHERE id = $1`;
-        const result = await executeQuery(async (client) => {
-          return await client.query(checkQuery, [id]);
-        });
-        if (result.rows.length > 0) {
-          throw new Error("Embedding already exists");
-        }
+        await dbQueue.add(async () => {
+          // Embedding storage logic
+          const id = `${configInfo.type}-${configInfo.id}`;
+          const checkQuery = `SELECT 1 FROM metadata_embeddings WHERE id = $1`;
+          const result = await executeQuery(async (client) => {
+            return await client.query(checkQuery, [id]);
+          });
+          if (result.rows.length > 0) {
+            throw new Error("Embedding already exists");
+          }
 
-        // Generate embedding from metadata name and description
-        const metadataString = `${metadataJson.name || ""} ${
-          metadataJson.description || ""
-        }`;
+          // Generate embedding from metadata name and description
+          const metadataString = `${metadataJson.name || ""} ${
+            metadataJson.description || ""
+          }`;
 
-        // Clean up the string: remove extra whitespace and newlines
-        const cleanedMetadataString = metadataString
-          .replace(/\s+/g, " ")
-          .trim();
+          // Clean up the string: remove extra whitespace and newlines
+          const cleanedMetadataString = metadataString
+            .replace(/\s+/g, " ")
+            .trim();
 
-        const embedding = await generateEmbeddingWithRetry(
-          cleanedMetadataString
-        );
+          const embedding = await generateEmbeddingWithRetry(
+            cleanedMetadataString
+          );
 
-        if (!embedding) {
-          throw new Error("Error generating metadata embedding");
-        }
+          if (!embedding) {
+            throw new Error("Error generating metadata embedding");
+          }
 
-        // Build the insert query based on entity type
-        let insertQuery = `
+          // Build the insert query based on entity type
+          let insertQuery = `
           INSERT INTO metadata_embeddings (
             id,
             embedding,
@@ -186,29 +188,32 @@ export const fetchAndTransformMetadata = async (
             created_at
         `;
 
-        // Add the appropriate ID column based on type
-        if (configInfo.type === "component") {
-          insertQuery += `, component_id`;
-        } else if (configInfo.type === "service") {
-          insertQuery += `, service_id`;
-        } else if (configInfo.type === "agent") {
-          insertQuery += `, agent_id`;
-        }
+          // Add the appropriate ID column based on type
+          if (configInfo.type === "component") {
+            insertQuery += `, component_id`;
+          } else if (configInfo.type === "service") {
+            insertQuery += `, service_id`;
+          } else if (configInfo.type === "agent") {
+            insertQuery += `, agent_id`;
+          }
 
-        insertQuery += `) VALUES ($1, $2, $3, CURRENT_TIMESTAMP`;
+          insertQuery += `) VALUES ($1, $2, $3, CURRENT_TIMESTAMP`;
 
-        // Add the ID value placeholder
-        insertQuery += `, $4)`;
+          // Add the ID value placeholder
+          insertQuery += `, $4)`;
 
-        // Create params array with the appropriate values
-        const params = [id, embedding, metadataString, configInfo.id];
+          // Create params array with the appropriate values
+          const params = [id, embedding, metadataString, configInfo.id];
 
-        // Execute the query
-        await executeQuery(async (client) => {
-          await client.query(insertQuery, params);
+          // Execute the query
+          await executeQuery(async (client) => {
+            await client.query(insertQuery, params);
+          });
+
+          console.log(
+            `Stored embedding for ${configInfo.type} ${configInfo.id}`
+          );
         });
-
-        console.log(`Stored embedding for ${configInfo.type} ${configInfo.id}`);
       } catch (error) {
         console.error("Error storing metadata embedding:", error);
       }
