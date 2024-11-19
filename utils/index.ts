@@ -158,7 +158,8 @@ export const fetchAndTransformMetadata = async (
             return await client.query(checkQuery, [id]);
           });
           if (result.rows.length > 0) {
-            throw new Error("Embedding already exists");
+            console.log(`Embedding already exists for ${id}`);
+            return;
           }
 
           // Generate embedding from metadata name and description
