@@ -51,6 +51,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         headers: getContentTypeHeaders("dag-json"),
       });
 
+      console.log(`Directory response: ${response.data}`);
       if (response.data?.Objects?.[0]?.Links) {
         console.log(
           `Found ${response.data.Objects[0].Links.length} items in directory response`
