@@ -38,6 +38,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
   let lastError;
 
   while (attempts < maxRetries) {
+    console.log(`Attempt ${attempts + 1} of ${maxRetries} for ${cleanCid}`);
     const gateway = getNextGateway();
     try {
       if (!gateway) {
