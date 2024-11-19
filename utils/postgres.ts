@@ -7,49 +7,31 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL environment variable is not defined");
 }
 
-// Configure pool with connection limits
-const createPool = (() => {
-  let pool: Pool | null = null;
+// Create a single pool instance
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+  max: 100,
+  idleTimeoutMillis: 240000,
+});
 
-  return () => {
-    if (!pool) {
-      pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: {
-          rejectUnauthorized: false,
-        },
-        max: 100, // Limit maximum connections
-        idleTimeoutMillis: 240000, // Close idle connections after 240 seconds
-      });
+// Handle pool errors
+pool.on("error", (err, client) => {
+  console.error("Unexpected error on idle client", err);
+});
 
-      // Handle pool errors
-      pool.on("error", (err, client) => {
-        console.error("Unexpected error on idle client", err);
-      });
-    }
-    return pool;
-  };
-})();
-
-// Add connection management helper
-export const withConnection = async <T>(
-  operation: (client: PoolClient) => Promise<T>
-): Promise<T> => {
-  const pool = createPool();
-  const client = await pool.connect();
-
-  try {
-    return await operation(client);
-  } finally {
-    client.release();
-  }
-};
-
-// Update executeQuery to use connection management
+// Simplified query execution function
 export const executeQuery = async <T>(
   queryFn: (client: PoolClient) => Promise<T>
 ): Promise<T> => {
-  return withConnection(queryFn);
+  const client = await pool.connect();
+  try {
+    return await queryFn(client);
+  } finally {
+    client.release();
+  }
 };
 
 // Test connection function
@@ -63,7 +45,6 @@ const testConnection = async (): Promise<void> => {
   }
 };
 
-// Test connection on startup
 void testConnection();
 
 export default executeQuery;
