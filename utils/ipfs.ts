@@ -17,7 +17,7 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500,
 });
 
-const IPFS_GATEWAYS = ["https://gateway.autonolas.tech", "https://ipfs.io"];
+const IPFS_GATEWAYS = ["https://gateway.autonolas.tech"];
 
 let currentGatewayIndex = 0;
 
@@ -63,7 +63,6 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
           response.data.includes("<html>") ||
           response.data.toLowerCase().includes("<!doctype html>"))
       ) {
-        console.log(`Invalid content detected in response: ${response.data}`);
         throw new Error("Invalid response format from gateway");
       }
 
@@ -227,7 +226,6 @@ async function downloadIPFSFile(
             response.data.includes("<html>") ||
             response.data.toLowerCase().includes("<!doctype html>"))
         ) {
-          console.log(`Invalid content detected in response: ${response.data}`);
           throw new Error("Invalid response format from gateway");
         }
 
