@@ -135,6 +135,8 @@ async function downloadIPFSFile(
   );
 
   try {
+    console.log(`Starting download for ${fileName}...`);
+
     // Simplified status tracking
     await client.query(
       `
@@ -195,152 +197,134 @@ async function downloadIPFSFile(
 
         const downloadWithRetry = async (attempt = 1): Promise<any> => {
           return new Promise((resolve, reject) => {
+            console.log(`Creating write stream for ${fileName}`);
             const writer = fsSync.createWriteStream(outputPath);
             let receivedData = false;
+            let dataSize = 0;
             let timeoutId: NodeJS.Timeout;
 
-            // Set a timeout for the download
-            timeoutId = setTimeout(async () => {
-              console.log(
-                `Download timed out for ${fileName} after 20 seconds`
-              );
+            // Set a timeout for the entire operation
+            const operationTimeout = setTimeout(() => {
+              console.log(`Operation timed out for ${fileName}`);
               writer.end();
-              await fs.unlink(outputPath).catch(console.error);
+              reject(new Error("Operation timeout"));
+            }, 30000); // 30 second total timeout
 
-              if (attempt < maxRetries) {
-                console.log(
-                  `Retrying download attempt ${attempt + 1}/${maxRetries}`
-                );
-                const result = await downloadWithRetry(attempt + 1);
-                console.log("Download result:", result);
-                resolve(result);
-              } else {
-                reject(
-                  new Error(`Failed to download after ${maxRetries} attempts`)
-                );
-              }
-            }, 25000); // 20 second timeout
-
-            response.data.on("data", () => {
-              console.log("Received data");
+            response.data.on("data", (chunk: any) => {
+              dataSize += chunk.length;
               receivedData = true;
+              console.log(`Received chunk for ${fileName}: ${dataSize} bytes`);
+
+              // Reset the timeout on each chunk
+              clearTimeout(timeoutId);
+              timeoutId = setTimeout(() => {
+                console.log(`Data transfer stalled for ${fileName}`);
+                writer.end();
+                reject(new Error("Data transfer timeout"));
+              }, 10000); // 10 second timeout between chunks
             });
 
             writer.on("finish", async () => {
+              console.log(`Write stream finished for ${fileName}`);
               clearTimeout(timeoutId);
-              if (!client) {
-                throw new Error("Database client is not initialized");
-              }
-              try {
-                if (receivedData) {
-                  const codeContent = await fs.readFile(outputPath, "utf-8");
+              clearTimeout(operationTimeout);
 
-                  if (!codeContent) {
-                    throw new Error("Invalid code content");
-                  }
-
-                  const cleanedCodeContent = codeContent.replace(
-                    /[\r\n]/g,
-                    " "
-                  );
-
-                  // Add check for blocked content
-                  if (cleanedCodeContent.includes("Blocked content")) {
-                    console.log(
-                      "Blocked content detected, retrying download..."
-                    );
-                    await fs.unlink(outputPath).catch(console.error);
-                    if (attempt < maxRetries) {
-                      console.log(
-                        `Initiating retry attempt ${attempt + 1}/${maxRetries}`
-                      );
-                      const result = await downloadWithRetry(attempt + 1);
-                      resolve(result);
-                      return;
-                    } else {
-                      reject(
-                        new Error(
-                          "Failed to download after all retries - Blocked content"
-                        )
-                      );
-                      return;
-                    }
-                  }
-
-                  const embedding = await generateEmbeddingWithRetry(
-                    cleanedCodeContent
-                  );
-
-                  if (!embedding) {
-                    throw new Error("Invalid embedding generated");
-                  }
-
-                  // Update database
-                  const insertQuery = `
-                    INSERT INTO code_embeddings (
-                      component_id,
-                      file_path,
-                      embedding,
-                      code_content
-                    ) VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (component_id, file_path) 
-                    DO UPDATE SET
-                      embedding = EXCLUDED.embedding,
-                      code_content = EXCLUDED.code_content
-                    RETURNING *;
-                  `;
-
-                  await client.query(insertQuery, [
-                    componentId,
-                    relativePath,
-                    embedding,
-                    cleanedCodeContent,
-                  ]);
-
-                  // On successful processing
-                  await client.query(
-                    `
-                    UPDATE code_processing_status 
-                    SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
-                    WHERE component_id = $2 AND file_path = $3
-                  `,
-                    [ProcessingStatus.COMPLETED, componentId, relativePath]
-                  );
-
-                  await client.query("COMMIT");
-
-                  // Important: Resolve the promise with the output path
-                  resolve(outputPath);
-                  return;
-                }
-                // If no data was received, reject the promise
+              if (!receivedData) {
+                console.log(`No data received for ${fileName}`);
                 reject(new Error("No data received"));
-              } catch (error: any) {
+                return;
+              }
+
+              try {
+                console.log(`Reading file content for ${fileName}`);
+                const codeContent = await fs.readFile(outputPath, "utf-8");
+                console.log(`Successfully read file content for ${fileName}`);
+
+                if (!codeContent) {
+                  throw new Error("Invalid code content");
+                }
+
+                const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
+
+                // Add check for blocked content
+                if (cleanedCodeContent.includes("Blocked content")) {
+                  console.log("Blocked content detected, retrying download...");
+                  await fs.unlink(outputPath).catch(console.error);
+                  if (attempt < maxRetries) {
+                    console.log(
+                      `Initiating retry attempt ${attempt + 1}/${maxRetries}`
+                    );
+                    const result = await downloadWithRetry(attempt + 1);
+                    resolve(result);
+                    return;
+                  } else {
+                    reject(
+                      new Error(
+                        "Failed to download after all retries - Blocked content"
+                      )
+                    );
+                    return;
+                  }
+                }
+
+                const embedding = await generateEmbeddingWithRetry(
+                  cleanedCodeContent
+                );
+
+                if (!embedding) {
+                  throw new Error("Invalid embedding generated");
+                }
+
+                // Update database
+                const insertQuery = `
+                  INSERT INTO code_embeddings (
+                    component_id,
+                    file_path,
+                    embedding,
+                    code_content
+                  ) VALUES ($1, $2, $3, $4)
+                  ON CONFLICT (component_id, file_path) 
+                  DO UPDATE SET
+                    embedding = EXCLUDED.embedding,
+                    code_content = EXCLUDED.code_content
+                  RETURNING *;
+                `;
+
+                await client.query(insertQuery, [
+                  componentId,
+                  relativePath,
+                  embedding,
+                  cleanedCodeContent,
+                ]);
+
+                // On successful processing
                 await client.query(
                   `
                   UPDATE code_processing_status 
-                  SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
-                  WHERE component_id = $3 AND file_path = $4
+                  SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+                  WHERE component_id = $2 AND file_path = $3
                 `,
-                  [
-                    ProcessingStatus.FAILED,
-                    error.message,
-                    componentId,
-                    relativePath,
-                  ]
+                  [ProcessingStatus.COMPLETED, componentId, relativePath]
                 );
-                await client.query("ROLLBACK");
+
+                await client.query("COMMIT");
+
+                console.log(`Database operations completed for ${fileName}`);
+                resolve(outputPath);
+              } catch (error) {
+                console.error(`Error processing ${fileName}:`, error);
                 reject(error);
               }
             });
 
-            writer.on("error", async (err) => {
+            writer.on("error", (err) => {
+              console.error(`Write stream error for ${fileName}:`, err);
               clearTimeout(timeoutId);
-              console.log("Write stream error:", err);
-              await fs.unlink(outputPath).catch(console.error);
+              clearTimeout(operationTimeout);
               reject(err);
             });
 
+            console.log(`Starting pipe operation for ${fileName}`);
             response.data.pipe(writer);
           });
         };
@@ -355,7 +339,7 @@ async function downloadIPFSFile(
 
     throw lastError || new Error("All gateways failed");
   } catch (error: any) {
-    console.error("Download failed:", error.message);
+    console.error(`Download failed for ${fileName}:`, error.message);
     if (client) {
       await client.query(
         `
@@ -369,6 +353,11 @@ async function downloadIPFSFile(
       client.release();
     }
     throw error;
+  } finally {
+    console.log(`Cleanup for ${fileName}`);
+    if (client) {
+      client.release();
+    }
   }
 }
 
@@ -431,7 +420,7 @@ async function processIPFSItem(
         item.name.toLowerCase() === "readme.md"
       ) {
         const outputDir = path.join("./downloads", currentPath);
-        console.log("Downloading file:", item.name);
+
         await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
       } else {
         console.log("Skipping non-supported file:", item.name);
