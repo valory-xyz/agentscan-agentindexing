@@ -447,15 +447,11 @@ async function processIPFSItem(
     }
 
     if (item.isDirectory) {
-      // Get contents of this directory
+      // Directory processing remains the same
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
       const contents = await readIPFSDirectory(dirUrl);
-
-      // Determine category from YAML files
       const category = await determineCategory(contents);
 
-      console.log("Category:", category);
-      // Create the new path, including category if found
       let newPath;
       if (category) {
         newPath = path.join(category, item.name);
@@ -464,30 +460,39 @@ async function processIPFSItem(
       }
 
       const outputDir = path.join("./downloads", newPath);
-
       console.log(`Entering directory: ${newPath}`);
       await fs.mkdir(outputDir, { recursive: true });
 
-      // Recursively process directory contents
+      // Process each item in directory independently to avoid transaction issues
       for (const content of contents) {
-        await processIPFSItem(content, newPath, retryAttempts, componentId);
+        try {
+          await processIPFSItem(content, newPath, retryAttempts, componentId);
+        } catch (contentError) {
+          // Log error but continue processing other items
+          console.error(`Error processing ${content.name}:`, contentError);
+          continue;
+        }
       }
     } else {
-      // Update file extension check to include README.md
       if (
         item.name.endsWith(".py") ||
         item.name.endsWith(".proto") ||
         item.name.toLowerCase() === "readme.md"
       ) {
         const outputDir = path.join("./downloads", currentPath);
-
-        await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
+        try {
+          await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
+        } catch (downloadError) {
+          console.error(`Failed to download ${item.name}:`, downloadError);
+          // Don't rethrow - allow processing to continue for other files
+        }
       } else {
         console.log("Skipping non-supported file:", item.name);
       }
     }
   } catch (error: any) {
-    console.log(`Error processing item ${item.name}:`, error.message);
+    console.error(`Error processing item ${item.name}:`, error.message);
+    // Don't rethrow - return null to indicate failure but allow continued processing
     return null;
   }
 }
