@@ -9,7 +9,7 @@ import { PoolClient } from "pg";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
-  timeout: 30000,
+  timeout: 5000,
   maxRedirects: 5,
   validateStatus: (status) => status < 400,
 });
