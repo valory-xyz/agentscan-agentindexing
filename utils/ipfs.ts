@@ -46,22 +46,14 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         throw new Error("No available gateways");
       }
 
-      // Use /ls endpoint with caching headers
-      const lsUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
-      const response = await axiosInstance.get(lsUrl, {
-        headers: {
-          Accept: "*/*",
-          "Cache-Control": "only-if-cached",
-          "If-None-Match": "*",
-        },
-        params: {
-          filename: `${cleanCid}.json`,
-        },
+      // Request directory listing in DAG-JSON format
+      const response = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
+        headers: getContentTypeHeaders("dag-json"),
       });
 
       if (response.data?.Objects?.[0]?.Links) {
         console.log(
-          `Found ${response.data.Objects[0].Links.length} items in /ls response`
+          `Found ${response.data.Objects[0].Links.length} items in directory response`
         );
         return response.data.Objects[0].Links.map((item: any) => ({
           name: item.Name,
@@ -73,7 +65,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       }
 
       console.log(
-        `No valid directory structure found in /ls response, retrying...`
+        `No valid directory structure found in directory response, retrying...`
       );
       const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -152,22 +144,14 @@ async function downloadIPFSFile(
       if (!gateway) throw new Error("No available gateways");
 
       try {
-        // Use /cat endpoint with caching headers
-        const apiUrl = `${gateway}/api/v0/cat?arg=${encodeURIComponent(
-          ipfsHash
-        )}`;
+        // Request raw content with proper content negotiation
         const response = await axiosInstance({
           method: "get",
-          url: apiUrl,
-          responseType: "text",
-          headers: {
-            Accept: "*/*",
-            "Cache-Control": "only-if-cached",
-            "If-None-Match": "*",
-          },
+          url: `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`,
           params: {
-            filename: fileName,
+            format: "raw", // Explicitly request raw format in URL
           },
+          headers: getContentTypeHeaders("raw"),
         });
 
         if (!response.data) {
@@ -228,7 +212,7 @@ async function downloadIPFSFile(
     }
 
     throw lastError || new Error("All gateways failed");
-  } catch (error) {
+  } catch (error: any) {
     // Update status to failed
     await executeQuery(async (client) => {
       await client.query(
@@ -237,7 +221,12 @@ async function downloadIPFSFile(
         SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
         WHERE component_id = $3 AND file_path = $4
       `,
-        [ProcessingStatus.FAILED, error.message, componentId, relativePath]
+        [
+          ProcessingStatus.FAILED,
+          error?.message || "Unknown error",
+          componentId,
+          relativePath,
+        ]
       );
     });
     throw error;
@@ -549,4 +538,24 @@ async function processCodeContent(
       });
     }
   }
+}
+
+// Add helper function for content type negotiation
+function getContentTypeHeaders(format?: string) {
+  const formatMap: Record<string, string> = {
+    raw: "application/vnd.ipld.raw",
+    car: "application/vnd.ipld.car",
+    tar: "application/x-tar",
+    "dag-json": "application/vnd.ipld.dag-json",
+    "dag-cbor": "application/vnd.ipld.dag-cbor",
+    json: "application/json",
+    cbor: "application/cbor",
+    "ipns-record": "application/vnd.ipfs.ipns-record",
+  };
+
+  return {
+    Accept: format ? formatMap[format] : "application/vnd.ipld.raw",
+    "Cache-Control": "only-if-cached",
+    "If-None-Match": "*",
+  };
 }
