@@ -244,6 +244,12 @@ async function processIPFSItem(
 ) {
   try {
     if (item.isDirectory) {
+      // Add check for tests directory
+      if (item.name === "tests" || currentPath.includes("tests")) {
+        console.log("Skipping tests directory");
+        return;
+      }
+
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
 
       // Add fallback for readIPFSDirectory
@@ -376,7 +382,6 @@ async function safeDownload(
           `Failed to process item ${item?.name || "unknown"}:`,
           error
         );
-        // Continue with next item instead of failing completely
       }
     }
   } catch (error) {
