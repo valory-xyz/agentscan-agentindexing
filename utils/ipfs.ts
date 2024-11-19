@@ -255,27 +255,15 @@ async function downloadIPFSFile(
                       console.log(
                         `Initiating retry attempt ${attempt + 1}/${maxRetries}`
                       );
-                      try {
-                        const result = await downloadWithRetry(attempt + 1);
-                        console.log(
-                          `Retry attempt ${attempt + 1} completed successfully`
-                        );
-                        resolve(result);
-                        return; // Important: return here to prevent further execution
-                      } catch (retryError) {
-                        console.error(
-                          `Retry attempt ${attempt + 1} failed:`,
-                          retryError
-                        );
-                        reject(retryError);
-                        return;
-                      }
+                      const result = await downloadWithRetry(attempt + 1);
+                      resolve(result);
+                      return;
                     } else {
-                      const error = new Error(
-                        "Failed to download after all retries - Blocked content"
+                      reject(
+                        new Error(
+                          "Failed to download after all retries - Blocked content"
+                        )
                       );
-                      console.error(error.message);
-                      reject(error);
                       return;
                     }
                   }
@@ -321,9 +309,13 @@ async function downloadIPFSFile(
                   );
 
                   await client.query("COMMIT");
-                  client.release();
-                  return outputPath;
+
+                  // Important: Resolve the promise with the output path
+                  resolve(outputPath);
+                  return;
                 }
+                // If no data was received, reject the promise
+                reject(new Error("No data received"));
               } catch (error: any) {
                 await client.query(
                   `
@@ -339,7 +331,7 @@ async function downloadIPFSFile(
                   ]
                 );
                 await client.query("ROLLBACK");
-                throw error;
+                reject(error);
               }
             });
 
