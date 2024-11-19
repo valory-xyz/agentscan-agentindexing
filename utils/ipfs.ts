@@ -28,45 +28,46 @@ function getNextGateway(): string | undefined {
   return gateway;
 }
 
-async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
+async function readIPFSDirectory(cid: string, maxRetries: number = 30) {
   try {
-    // Extract just the CID from the full URL if a URL is passed
-    console.log(`CID: ${cid}`);
     const cleanCid = cid.replace(/^https:\/\/[^/]+\/ipfs\//, "");
-
     let lastError;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const gateway = getNextGateway();
-      console.log(`Gateway: ${gateway}`);
       const apiUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
 
       try {
-        console.log(`Attempting with gateway: ${gateway}`);
+        console.log(
+          `Attempt ${attempt}/${maxRetries} with gateway: ${gateway}`
+        );
         const response = await axiosInstance.get(apiUrl);
 
-        if (response.data && response.data.Objects) {
-          const contents = response.data.Objects[0].Links.map((item: any) => ({
+        if (response.data?.Objects?.[0]?.Links) {
+          return response.data.Objects[0].Links.map((item: any) => ({
             name: item.Name,
             hash: item.Hash,
             size: item.Size,
             isDirectory: item.Type === 1 || item.Type === "dir",
           }));
-          console.log("Contents:", contents);
-
-          return contents;
         }
 
-        return [];
+        // If Objects is missing, treat as an error and retry
+        console.log(`No Objects found in response, retrying...`);
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
       } catch (error: any) {
         lastError = error;
-        console.log(`Gateway ${gateway} failed, trying next one...`);
+        console.log(
+          `Gateway ${gateway} failed, attempt ${attempt}/${maxRetries}`
+        );
+        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
     }
-
-    // If we've exhausted all retries
-    console.error("Failed to read directory after all retries");
-    throw lastError;
+    throw lastError || new Error("No valid Objects found after all retries");
   } catch (error: any) {
     console.error("Error reading IPFS directory:", error.message);
     throw error;
@@ -356,7 +357,7 @@ async function determineCategory(contents: any[]): Promise<string | null> {
 async function processIPFSItem(
   item: any,
   currentPath = "",
-  retryAttempts = 10,
+  retryAttempts = 30,
   componentId: string
 ) {
   try {
