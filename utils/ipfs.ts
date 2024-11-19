@@ -23,6 +23,7 @@ const IPFS_GATEWAYS = [
   "https://ipfs.io",
   "https://dweb.link",
   "https://gateway.pinata.cloud",
+  "https://gateway.ipfs.io",
 ];
 
 let currentGatewayIndex = 0;
