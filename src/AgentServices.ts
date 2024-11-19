@@ -298,7 +298,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     const serviceId = event.args.serviceId.toString().toLowerCase();
     const metadataJson = await memoizedFetchMetadata(
       event.args.configHash,
-      serviceId,
+      createChainScopedId(chain, serviceId),
       "service"
     );
     const packageHash = metadataJson?.packageHash;
@@ -435,7 +435,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
     const metadataJson = await memoizedFetchMetadata(
       event.args.configHash,
-      serviceId,
+      createChainScopedId(chain, serviceId),
       "service"
     );
     const packageHash = metadataJson?.packageHash;
