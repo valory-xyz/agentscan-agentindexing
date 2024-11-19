@@ -137,7 +137,7 @@ export const fetchAndTransformMetadata = async (
         }
 
         // Generate embedding from metadata name and description
-        const metadataString = `${metadataJson.name}:${metadataJson.description}`;
+        const metadataString = `${metadataJson.name}-${metadataJson.description}`;
         const embedding = await generateEmbeddingWithRetry(metadataString);
 
         if (!embedding) {
