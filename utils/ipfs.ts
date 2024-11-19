@@ -44,21 +44,26 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
     try {
       if (!gateway) throw new Error("No available gateways");
 
-      // Request directory listing in DAG-JSON format with multiple content negotiation methods
       const response = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
         headers: {
-          // Explicitly request DAG-JSON in headers
           Accept: "application/vnd.ipld.dag-json",
           "X-Content-Type-Options": "nosniff",
         },
         params: {
-          // Explicitly request DAG-JSON in URL parameters
           format: "dag-json",
         },
-        // Prevent axios from trying to parse the response
       });
 
-      console.log(`Response: ${JSON.stringify(response.data)}`);
+      if (
+        typeof response.data === "string" &&
+        (response.data.includes("<!DOCTYPE html>") ||
+          response.data.includes("<html>") ||
+          response.data.toLowerCase().includes("<!doctype html>"))
+      ) {
+        console.log(`HTML content detected in directory response, retrying...`);
+        throw new Error("HTML content received instead of directory data");
+      }
+
       // Parse the response manually to handle both string and object responses
       let parsedData;
       try {
@@ -70,6 +75,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         console.log("Failed to parse directory response:", e);
         throw new Error("Invalid directory response format");
       }
+      console.log(`Parsed data:`, parsedData);
 
       // Check for valid DAG-JSON directory structure
       if (parsedData?.Objects?.[0]?.Links) {
@@ -184,6 +190,18 @@ async function downloadIPFSFile(
         }
 
         const codeContent = response.data;
+
+        // Add check for HTML content
+        if (
+          typeof codeContent === "string" &&
+          (codeContent.includes("<!DOCTYPE html>") ||
+            codeContent.includes("<html>") ||
+            codeContent.toLowerCase().includes("<!doctype html>"))
+        ) {
+          console.log(`HTML content detected, retrying...`);
+          throw new Error("HTML content received instead of raw data");
+        }
+
         console.log(`Cat response: ${codeContent}`);
         const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
 
