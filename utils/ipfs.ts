@@ -443,6 +443,7 @@ async function processIPFSItem(
       // Process contents with individual error handling
       for (const content of contents) {
         try {
+          console.log(`Processing item ${content.name}`);
           await processIPFSItem(content, newPath, retryAttempts, componentId);
         } catch (error) {
           console.error(`Failed to process item ${content.name}:`, error);
