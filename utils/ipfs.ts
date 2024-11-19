@@ -530,10 +530,20 @@ async function processCodeContent(
 ): Promise<void> {
   // Generate embeddings (might return single or multiple embeddings)
   const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
-  console.log(`Generated ${embeddings.length} embeddings for ${relativePath}`);
 
-  // Handle single or multiple embeddings
-  if (!Array.isArray(embeddings) || !Array.isArray(embeddings[0])) {
+  // Detailed debug logging
+  console.log("=== Debug Embeddings ===");
+  console.log(`File: ${relativePath}`);
+  console.log("Embeddings length:", embeddings.length);
+  console.log("Embeddings type:", typeof embeddings);
+  console.log("Is array?", Array.isArray(embeddings));
+  console.log("First element:", embeddings[0]);
+  console.log("First element type:", typeof embeddings[0]);
+  console.log("First element length:", embeddings[0]?.length);
+  console.log("======================");
+
+  if (!Array.isArray(embeddings) || embeddings.length === 1) {
+    console.log("Processing as single embedding");
     // Single embedding case - store as normal
     const mainInsertQuery = `
       INSERT INTO code_embeddings (
@@ -558,9 +568,14 @@ async function processCodeContent(
       embeddings,
     ]);
   } else {
-    // Multiple embeddings case - store chunks with modified file paths
+    console.log("Processing as multiple embeddings");
+    console.log(`Number of embeddings: ${embeddings.length}`);
+    console.log("Sample of first embedding:", embeddings[0].slice(0, 5));
+
+    // Multiple embeddings case
     const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
-    console.log(`Split into ${chunks.length} chunks for ${relativePath}`);
+    console.log(`Number of text chunks: ${chunks.length}`);
+    console.log(`Number of embeddings: ${embeddings.length}`);
 
     for (let i = 0; i < embeddings.length; i++) {
       const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
@@ -583,9 +598,10 @@ async function processCodeContent(
           code_content = EXCLUDED.code_content,
           embedding = EXCLUDED.embedding,
           updated_at = NOW()
+        RETURNING component_id, file_path
       `;
 
-      await client.query(chunkInsertQuery, [
+      const query = await client.query(chunkInsertQuery, [
         componentId,
         chunkPath,
         chunks[i],
@@ -593,6 +609,10 @@ async function processCodeContent(
         true,
         relativePath,
       ]);
+      console.log(
+        `Chunk inserted ${i + 1} of ${embeddings.length}:`,
+        query.rows
+      );
     }
   }
 }
