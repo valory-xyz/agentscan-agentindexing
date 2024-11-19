@@ -51,6 +51,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
             size: item.Size,
             isDirectory: item.Type === 1 || item.Type === "dir",
           }));
+          console.log("Contents:", contents);
 
           return contents;
         }
@@ -188,7 +189,6 @@ async function downloadIPFSFile(
                 reject(
                   new Error(`Failed to download after ${maxRetries} attempts`)
                 );
-                console.log("Download failed");
               }
             }, 20000); // 20 second timeout
 
@@ -328,6 +328,7 @@ async function processIPFSItem(
   componentId: string
 ) {
   try {
+    console.log("Processing item:", item.name);
     // Add check for tests folder
     if (item.name === "tests" || currentPath.includes("tests")) {
       console.log("Skipping tests folder");
@@ -342,6 +343,7 @@ async function processIPFSItem(
       // Determine category from YAML files
       const category = await determineCategory(contents);
 
+      console.log("Category:", category);
       // Create the new path, including category if found
       let newPath;
       if (category) {
@@ -363,7 +365,10 @@ async function processIPFSItem(
       // Only download .py and .proto files
       if (item.name.endsWith(".py") || item.name.endsWith(".proto")) {
         const outputDir = path.join("./downloads", currentPath);
+        console.log("Downloading python or proto file:", item.name);
         await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
+      } else {
+        console.log("Skipping non-python or proto file:", item.name);
       }
     }
   } catch (error: any) {
@@ -372,22 +377,13 @@ async function processIPFSItem(
   }
 }
 
-// Track downloaded hashes to prevent duplicates
-const downloadedHashes = new Set();
-
 export async function recursiveDownload(
   ipfsHash: string,
   retryAttempts = 3,
   componentId: string
 ) {
   try {
-    if (downloadedHashes.has(ipfsHash)) {
-      console.log(`Skipping already downloaded hash: ${ipfsHash}`);
-      return;
-    }
-
     console.log(`Starting recursive download from hash: ${ipfsHash}`);
-    downloadedHashes.add(ipfsHash);
 
     // Create base downloads directory
     await fs.mkdir("./downloads", { recursive: true });

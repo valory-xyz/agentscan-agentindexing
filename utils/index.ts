@@ -75,9 +75,9 @@ export const fetchAndEmbedMetadata = async (
     maxRetries,
     configInfo
   );
-  console.log("metadata", metadata?.packageHash);
 
   if (metadata?.packageHash) {
+    console.log("Downloading package...", metadata.packageHash);
     try {
       await recursiveDownload(metadata.packageHash, 3, componentId);
     } catch (error) {
