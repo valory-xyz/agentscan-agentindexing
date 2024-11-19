@@ -10,6 +10,7 @@ import openai, {
 import { executeQuery } from "./postgres";
 import pgvector from "pgvector";
 import { PoolClient } from "pg";
+import pQueue from "p-queue";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
@@ -378,14 +379,16 @@ async function determineCategory(contents: any[]): Promise<string | null> {
   return null;
 }
 
+// Create a queue for database operations
+const dbQueue = new pQueue({ concurrency: 5 }); // Limit concurrent DB operations
+
+// Update processIPFSItem to use queue
 async function processIPFSItem(
   item: any,
   currentPath = "",
   retryAttempts = 25,
   componentId: string
 ) {
-  let client = null;
-
   try {
     if (item.isDirectory) {
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
@@ -448,12 +451,23 @@ async function processIPFSItem(
       ) {
         const outputDir = path.join("./downloads", currentPath);
 
-        client = await executeQuery(async (client) => {
-          await client.query("BEGIN");
-
-          await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
-
-          await client.query("COMMIT");
+        // Queue the database operation
+        await dbQueue.add(async () => {
+          return executeQuery(async (client) => {
+            await client.query("BEGIN");
+            try {
+              await downloadIPFSFile(
+                item.hash,
+                item.name,
+                outputDir,
+                componentId
+              );
+              await client.query("COMMIT");
+            } catch (error) {
+              await client.query("ROLLBACK");
+              throw error;
+            }
+          });
         });
       }
     }
@@ -573,86 +587,87 @@ function getChunkFileName(
   return path.join(directory, newName + parsedPath.ext);
 }
 
-// Update the processCodeContent function
+// Update processCodeContent to use queue
 async function processCodeContent(
   componentId: string,
   relativePath: string,
   cleanedCodeContent: string
 ): Promise<void> {
-  // Generate embeddings (might return single or multiple embeddings)
-  const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
+  return dbQueue.add(async () => {
+    const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
 
-  if (!Array.isArray(embeddings) || embeddings.length === 1) {
-    console.log("Processing as single embedding");
-    // Single embedding case - store as normal
-    const mainInsertQuery = `
-      INSERT INTO code_embeddings (
-        component_id,
-        file_path,
-        code_content,
-        embedding,
-        created_at,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, NOW(), NOW())
-      ON CONFLICT (component_id, file_path) 
-      DO UPDATE SET
-        code_content = EXCLUDED.code_content,
-        embedding = EXCLUDED.embedding,
-        updated_at = NOW()
-    `;
-
-    await executeQuery(async (client) => {
-      await client.query(mainInsertQuery, [
-        componentId,
-        relativePath,
-        cleanedCodeContent,
-        embeddings,
-      ]);
-    });
-  } else {
-    console.log("Processing as multiple embeddings");
-
-    // Multiple embeddings case
-    const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
-
-    for (let i = 0; i < embeddings.length; i++) {
-      const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
-      console.log(
-        `Processing chunk ${i + 1} of ${embeddings.length}: ${chunkPath}`
-      );
-      const chunkInsertQuery = `
+    if (!Array.isArray(embeddings) || embeddings.length === 1) {
+      console.log("Processing as single embedding");
+      // Single embedding case - store as normal
+      const mainInsertQuery = `
         INSERT INTO code_embeddings (
           component_id,
           file_path,
           code_content,
           embedding,
-          is_chunk,
-          original_file_path,
           created_at,
           updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+        ) VALUES ($1, $2, $3, $4, NOW(), NOW())
         ON CONFLICT (component_id, file_path) 
         DO UPDATE SET
           code_content = EXCLUDED.code_content,
           embedding = EXCLUDED.embedding,
           updated_at = NOW()
-        RETURNING component_id, file_path
       `;
 
-      const query = await executeQuery(async (client) => {
-        return await client.query(chunkInsertQuery, [
+      await executeQuery(async (client) => {
+        await client.query(mainInsertQuery, [
           componentId,
-          chunkPath,
-          chunks[i],
-          embeddings[i],
-          true,
           relativePath,
+          cleanedCodeContent,
+          embeddings,
         ]);
       });
-      console.log(
-        `Chunk inserted ${i + 1} of ${embeddings.length}:`,
-        query.rows
-      );
+    } else {
+      console.log("Processing as multiple embeddings");
+
+      // Multiple embeddings case
+      const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
+
+      for (let i = 0; i < embeddings.length; i++) {
+        const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
+        console.log(
+          `Processing chunk ${i + 1} of ${embeddings.length}: ${chunkPath}`
+        );
+        const chunkInsertQuery = `
+          INSERT INTO code_embeddings (
+            component_id,
+            file_path,
+            code_content,
+            embedding,
+            is_chunk,
+            original_file_path,
+            created_at,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+          ON CONFLICT (component_id, file_path) 
+          DO UPDATE SET
+            code_content = EXCLUDED.code_content,
+            embedding = EXCLUDED.embedding,
+            updated_at = NOW()
+          RETURNING component_id, file_path
+        `;
+
+        const query = await executeQuery(async (client) => {
+          return await client.query(chunkInsertQuery, [
+            componentId,
+            chunkPath,
+            chunks[i],
+            embeddings[i],
+            true,
+            relativePath,
+          ]);
+        });
+        console.log(
+          `Chunk inserted ${i + 1} of ${embeddings.length}:`,
+          query.rows
+        );
+      }
     }
-  }
+  });
 }
