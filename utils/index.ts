@@ -107,7 +107,7 @@ export const fetchAndTransformMetadata = async (
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const metadata = await axios.get(metadataURI, {
-        timeout: 3500, // 4 seconds timeout
+        timeout: 10000, // 10 seconds timeout
       });
       let metadataJson = metadata.data;
 
