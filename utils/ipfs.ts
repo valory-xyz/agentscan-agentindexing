@@ -395,6 +395,7 @@ async function processIPFSItem(
       }
     } else {
       // Only download .py and .proto files
+      console.log("Item name:", item.name);
       if (item.name.endsWith(".py") || item.name.endsWith(".proto")) {
         const outputDir = path.join("./downloads", currentPath);
         console.log("Downloading python or proto file:", item.name);
@@ -430,10 +431,6 @@ export async function recursiveDownload(
     }
 
     console.log(`Completed download for hash: ${ipfsHash}`);
-
-    // Delete the downloads directory and all its contents
-    await fs.rm("./downloads", { recursive: true, force: true });
-    console.log("Cleaned up downloads directory");
   } catch (error) {
     console.error(`Failed to download ${ipfsHash}:`, error);
     await fs
