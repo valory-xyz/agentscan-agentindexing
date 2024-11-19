@@ -200,6 +200,7 @@ async function downloadIPFSFile(
   );
 
   try {
+    await client.query("BEGIN");
     console.log(`Starting download for ${fileName}...`);
 
     // Simplified status tracking
@@ -400,7 +401,8 @@ async function downloadIPFSFile(
     throw lastError || new Error("All gateways failed");
   } catch (error: any) {
     console.error(`Download failed for ${fileName}:`, error.message);
-    if (client) {
+
+    try {
       await client.query(
         `
         UPDATE code_processing_status 
@@ -410,14 +412,14 @@ async function downloadIPFSFile(
         [ProcessingStatus.FAILED, error.message, componentId, relativePath]
       );
       await client.query("ROLLBACK");
-      client.release();
+    } catch (rollbackError) {
+      console.error("Error during rollback:", rollbackError);
     }
+
     throw error;
   } finally {
     console.log(`Cleanup for ${fileName}`);
-    if (client) {
-      client.release();
-    }
+    client.release();
   }
 }
 
