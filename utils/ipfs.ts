@@ -74,13 +74,15 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
             : response.data;
       } catch (e: any) {
         console.log("Failed to parse directory response:", e);
-        console.log("Raw response:", response.data);
+
         throw new Error(`Invalid directory response format: ${e.message}`);
       }
-      console.log(`Parsed data:`, parsedData);
 
       if (parsedData?.Objects?.[0]?.Links) {
-        console.log("parsedData", parsedData?.Objects?.[0]?.Links);
+        console.log(
+          "parsedData Objects.Links",
+          parsedData?.Objects?.[0]?.Links
+        );
         console.log(
           `Found ${parsedData.Objects[0].Links.length} items in directory response`
         );
@@ -94,7 +96,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       }
 
       if (parsedData?.Links) {
-        console.log("parsedData", parsedData.Links);
+        console.log("parsedData Links", parsedData.Links);
         console.log(
           `Found ${parsedData.Links.length} items in directory response`
         );
@@ -343,6 +345,7 @@ async function processIPFSItem(
         // Fallback: treat as empty directory and continue
         contents = [];
       }
+      console.log(`Contents: ${contents}`);
 
       // Add fallback for determineCategory
       let category;
