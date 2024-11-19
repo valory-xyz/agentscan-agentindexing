@@ -7,7 +7,7 @@ import openai, {
   MAX_TOKENS,
   splitTextIntoChunks,
 } from "./openai";
-import pool from "./postgres";
+import { executeQuery } from "./postgres";
 import pgvector from "pgvector";
 import { PoolClient } from "pg";
 
@@ -15,7 +15,7 @@ import { PoolClient } from "pg";
 const axiosInstance = axios.create({
   timeout: 20000,
   maxRedirects: 3,
-  validateStatus: (status) => status >= 200 && status < 500, // More specific status validat
+  validateStatus: (status) => status >= 200 && status < 500,
 });
 
 const IPFS_GATEWAYS = [
@@ -189,14 +189,16 @@ const downloadWithRetry = async (
             cleanedCodeContent
           );
           // On successful processing
-          await client.query(
-            `
+          await executeQuery(async (client) => {
+            await client.query(
+              `
           UPDATE code_processing_status 
           SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
           WHERE component_id = $2 AND file_path = $3
         `,
-            [ProcessingStatus.COMPLETED, componentId, relativePath]
-          );
+              [ProcessingStatus.COMPLETED, componentId, relativePath]
+            );
+          });
         } catch (error) {
           console.error(`Error processing ${fileName}:`, error);
           throw error;
@@ -230,152 +232,143 @@ async function downloadIPFSFile(
   componentId: string,
   maxRetries: number = 15
 ): Promise<string | null> {
-  const fullPath = path.join(outputDir, fileName);
-  const relativePath = fileName;
+  return await executeQuery(async (client) => {
+    const fullPath = path.join(outputDir, fileName);
+    const relativePath = fileName;
 
-  console.log(`Starting download for ${relativePath}...`);
+    console.log(`Starting download for ${relativePath}...`);
 
-  const client = await pool.connect();
+    try {
+      const checkResult = await executeQuery(async (client) => {
+        return await client.query(
+          `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
+          [componentId, relativePath]
+        );
+      });
 
-  try {
-    await client.query("BEGIN");
+      if (checkResult.rows.length > 0) {
+        console.log(`File ${relativePath} already exists in the database`);
+        return fullPath;
+      }
 
-    const checkResult = await client.query(
-      `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
-      [componentId, relativePath]
-    );
+      await executeQuery(async (client) => {
+        await client.query(
+          `
+          INSERT INTO code_processing_status (component_id, file_path, status)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (component_id, file_path) 
+          DO UPDATE SET 
+            status = $3,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+          [componentId, relativePath, ProcessingStatus.PROCESSING]
+        );
+      });
 
-    if (checkResult.rows.length > 0) {
-      console.log(`File ${relativePath} already exists in the database`);
-      await client.query("COMMIT");
-      return fullPath;
-    }
+      let lastError;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        const gateway = getNextGateway();
+        const fileUrl = `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`;
 
-    await client.query(
-      `
-      INSERT INTO code_processing_status (component_id, file_path, status)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (component_id, file_path) 
-      DO UPDATE SET 
-        status = $3,
-        updated_at = CURRENT_TIMESTAMP
-    `,
-      [componentId, relativePath, ProcessingStatus.PROCESSING]
-    );
-
-    let lastError;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const gateway = getNextGateway();
-      const fileUrl = `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`;
-
-      try {
-        const response = await axiosInstance({
-          method: "get",
-          url: fileUrl,
-          responseType: "stream",
-        });
-
-        await fs.mkdir(outputDir, { recursive: true });
-        const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
-        const outputPath = path.join(outputDir, sanitizedFileName);
-
-        // Process the download
-        const result = await new Promise((resolve, reject) => {
-          const writer = fsSync.createWriteStream(outputPath);
-          let receivedData = false;
-          let dataSize = 0;
-
-          response.data.on("data", (chunk: any) => {
-            dataSize += chunk.length;
-            receivedData = true;
+        try {
+          const response = await axiosInstance({
+            method: "get",
+            url: fileUrl,
+            responseType: "stream",
           });
 
-          writer.on("finish", async () => {
-            if (!receivedData) {
-              reject(new Error("No data received"));
-              return;
-            }
+          await fs.mkdir(outputDir, { recursive: true });
+          const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
+          const outputPath = path.join(outputDir, sanitizedFileName);
 
-            try {
-              const codeContent = await fs.readFile(outputPath, "utf-8");
-              if (!codeContent) {
-                throw new Error("Invalid code content");
-              }
+          // Process the download
+          const result = await new Promise((resolve, reject) => {
+            const writer = fsSync.createWriteStream(outputPath);
+            let receivedData = false;
+            let dataSize = 0;
 
-              const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
+            response.data.on("data", (chunk: any) => {
+              dataSize += chunk.length;
+              receivedData = true;
+            });
 
-              if (cleanedCodeContent.includes("Blocked content")) {
-                reject(new Error("Blocked content detected"));
+            writer.on("finish", async () => {
+              if (!receivedData) {
+                reject(new Error("No data received"));
                 return;
               }
 
-              // Process the code content within the same transaction
-              await processCodeContent(
-                client,
-                componentId,
-                relativePath,
-                cleanedCodeContent
-              );
+              try {
+                const codeContent = await fs.readFile(outputPath, "utf-8");
+                if (!codeContent) {
+                  throw new Error("Invalid code content");
+                }
 
-              // Update status to completed
-              await client.query(
-                `
-                UPDATE code_processing_status 
-                SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
-                WHERE component_id = $2 AND file_path = $3
-              `,
-                [ProcessingStatus.COMPLETED, componentId, relativePath]
-              );
+                const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
 
-              resolve(outputPath);
-            } catch (error) {
-              reject(error);
-            }
+                if (cleanedCodeContent.includes("Blocked content")) {
+                  reject(new Error("Blocked content detected"));
+                  return;
+                }
+
+                // Process the code content within the same transaction
+                await processCodeContent(
+                  client,
+                  componentId,
+                  relativePath,
+                  cleanedCodeContent
+                );
+
+                // Update status to completed
+                await executeQuery(async (client) => {
+                  await client.query(
+                    `
+                  UPDATE code_processing_status 
+                  SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+                  WHERE component_id = $2 AND file_path = $3
+                `,
+                    [ProcessingStatus.COMPLETED, componentId, relativePath]
+                  );
+                });
+
+                resolve(outputPath);
+              } catch (error) {
+                reject(error);
+              }
+            });
+
+            writer.on("error", reject);
+            response.data.pipe(writer);
           });
 
-          writer.on("error", reject);
-          response.data.pipe(writer);
-        });
+          // If we get here, everything succeeded
+          await client.query("COMMIT");
+          return result as string;
+        } catch (error: any) {
+          lastError = error;
+          console.log(`Gateway ${gateway} failed, trying next one...`);
 
-        // If we get here, everything succeeded
-        await client.query("COMMIT");
-        return result as string;
-      } catch (error: any) {
-        lastError = error;
-        console.log(`Gateway ${gateway} failed, trying next one...`);
+          // Only rollback if there's a database-related error
+          if (
+            error.message.includes("database") ||
+            error.message.includes("sql")
+          ) {
+            await client.query("ROLLBACK");
+            throw error; // Re-throw database errors immediately
+          }
 
-        // Only rollback if there's a database-related error
-        if (
-          error.message.includes("database") ||
-          error.message.includes("sql")
-        ) {
-          await client.query("ROLLBACK");
-          throw error; // Re-throw database errors immediately
+          continue; // Continue to next gateway for non-database errors
         }
-
-        continue; // Continue to next gateway for non-database errors
       }
+
+      // If we get here, all gateways failed
+      await client.query("ROLLBACK");
+      throw lastError || new Error("All gateways failed");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
     }
-
-    // If we get here, all gateways failed
-    await client.query("ROLLBACK");
-    throw lastError || new Error("All gateways failed");
-  } catch (error: any) {
-    console.error(`Download failed for ${fileName}:`, error.message);
-
-    await client.query(
-      `
-      UPDATE code_processing_status 
-      SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE component_id = $3 AND file_path = $4
-    `,
-      [ProcessingStatus.FAILED, error.message, componentId, relativePath]
-    );
-
-    throw error;
-  } finally {
-    client.release();
-  }
+  });
 }
 
 async function determineCategory(contents: any[]): Promise<string | null> {
@@ -459,23 +452,13 @@ async function processIPFSItem(
       ) {
         const outputDir = path.join("./downloads", currentPath);
 
-        client = await pool.connect();
-        try {
+        client = await executeQuery(async (client) => {
           await client.query("BEGIN");
 
           await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
 
           await client.query("COMMIT");
-        } catch (error) {
-          if (client) {
-            await client.query("ROLLBACK");
-          }
-          throw error;
-        } finally {
-          if (client) {
-            client.release();
-          }
-        }
+        });
       }
     }
   } catch (error: any) {
@@ -496,7 +479,6 @@ async function safeDownload(
     console.log(`Starting safe download for hash: ${ipfsHash}`);
 
     // First, update status to processing
-    const client = await pool.connect();
 
     // Create downloads directory
     await fs.mkdir("./downloads", { recursive: true }).catch((err) => {
@@ -624,12 +606,14 @@ async function processCodeContent(
         updated_at = NOW()
     `;
 
-    await client.query(mainInsertQuery, [
-      componentId,
-      relativePath,
-      cleanedCodeContent,
-      embeddings,
-    ]);
+    await executeQuery(async (client) => {
+      await client.query(mainInsertQuery, [
+        componentId,
+        relativePath,
+        cleanedCodeContent,
+        embeddings,
+      ]);
+    });
   } else {
     console.log("Processing as multiple embeddings");
 
@@ -660,18 +644,37 @@ async function processCodeContent(
         RETURNING component_id, file_path
       `;
 
-      const query = await client.query(chunkInsertQuery, [
-        componentId,
-        chunkPath,
-        chunks[i],
-        embeddings[i],
-        true,
-        relativePath,
-      ]);
+      const query = await executeQuery(async (client) => {
+        return await client.query(chunkInsertQuery, [
+          componentId,
+          chunkPath,
+          chunks[i],
+          embeddings[i],
+          true,
+          relativePath,
+        ]);
+      });
       console.log(
         `Chunk inserted ${i + 1} of ${embeddings.length}:`,
         query.rows
       );
     }
   }
+}
+
+// Example of batching multiple operations in a single connection
+async function batchOperation() {
+  await executeQuery(async (client) => {
+    // All these operations use the same client
+    await client.query("BEGIN");
+    try {
+      await client.query("INSERT INTO ...");
+      await client.query("UPDATE ...");
+      await client.query("DELETE FROM ...");
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
 }

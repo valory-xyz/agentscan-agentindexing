@@ -1,7 +1,7 @@
 import axios from "axios";
 import { recursiveDownload } from "./ipfs";
-import pool from "./postgres";
-import { memoize } from "lodash";
+import pool, { executeQuery } from "./postgres";
+
 import { generateEmbeddingWithRetry } from "./openai";
 
 // Helper function to get chain name from contract name
@@ -152,7 +152,9 @@ export const fetchAndTransformMetadata = async (
         // Embedding storage logic
         const id = `${configInfo.type}-${configInfo.id}`;
         const checkQuery = `SELECT 1 FROM metadata_embeddings WHERE id = $1`;
-        const result = await pool.query(checkQuery, [id]);
+        const result = await executeQuery(async (client) => {
+          return await client.query(checkQuery, [id]);
+        });
         if (result.rows.length > 0) {
           throw new Error("Embedding already exists");
         }
@@ -202,7 +204,9 @@ export const fetchAndTransformMetadata = async (
         const params = [id, embedding, metadataString, configInfo.id];
 
         // Execute the query
-        await pool.query(insertQuery, params);
+        await executeQuery(async (client) => {
+          await client.query(insertQuery, params);
+        });
 
         console.log(`Stored embedding for ${configInfo.type} ${configInfo.id}`);
       } catch (error) {
