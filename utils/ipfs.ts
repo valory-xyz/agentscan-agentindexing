@@ -192,11 +192,12 @@ async function downloadIPFSFile(
               codeContent,
             ]);
             console.log("Insert query result:", result.rows);
+            // Simple reindex without CONCURRENTLY
             const reindexQuery = `
-              REINDEX INDEX code_embeddings_embedding_idx;
-            `;
-            const reindexResult = await client.query(reindexQuery);
-            console.log("Reindex query result:", reindexResult.rows);
+                  SET statement_timeout = 0;  -- Disable timeout
+                  REINDEX INDEX code_embeddings_embedding_idx;
+                `;
+            void client.query(reindexQuery);
 
             await client.query("COMMIT");
 
