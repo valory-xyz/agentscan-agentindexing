@@ -20,8 +20,9 @@ import {
 
 // Memoize the metadata fetching to prevent duplicate requests
 const memoizedFetchMetadata = memoize(
-  (hash: string) => fetchAndTransformMetadata(hash),
-  (hash: string) => hash
+  (hash: string, id: string, type: string) =>
+    fetchAndTransformMetadata(hash, 3, { type, id }),
+  (hash: string, id: string, type: string) => `${hash}-${id}-${type}`
 );
 
 const memoizedFetchAndEmbedMetadata = memoize(
@@ -33,7 +34,7 @@ const memoizedFetchAndEmbedMetadata = memoize(
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
   const [metadataJson, existingAgent] = await Promise.all([
-    memoizedFetchMetadata(event.args.unitHash),
+    memoizedFetchMetadata(event.args.unitHash, agentId, "agent"),
     context.db.find(Agent, { id: agentId }),
   ]);
 
@@ -244,7 +245,11 @@ ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
 // Add UpdateUnitHash handler for AgentRegistry
 ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
-  const metadataJson = await memoizedFetchMetadata(event.args.unitHash);
+  const metadataJson = await memoizedFetchMetadata(
+    event.args.unitHash,
+    agentId,
+    "agent"
+  );
 
   try {
     await context.db.update(Agent, { id: agentId }).set({
@@ -265,7 +270,11 @@ ponder.on(
   `MainnetComponentRegistry:UpdateUnitHash`,
   async ({ event, context }) => {
     const componentId = event.args.unitId.toString();
-    const metadataJson = await memoizedFetchMetadata(event.args.unitHash);
+    const metadataJson = await memoizedFetchMetadata(
+      event.args.unitHash,
+      componentId,
+      "component"
+    );
 
     try {
       await context.db.update(Component, { id: componentId }).set({
@@ -287,7 +296,11 @@ CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
     const serviceId = event.args.serviceId.toString().toLowerCase();
-    const metadataJson = await memoizedFetchMetadata(event.args.configHash);
+    const metadataJson = await memoizedFetchMetadata(
+      event.args.configHash,
+      serviceId,
+      "service"
+    );
     const packageHash = metadataJson?.packageHash;
 
     try {
@@ -420,7 +433,11 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString()
     );
-    const metadataJson = await memoizedFetchMetadata(event.args.configHash);
+    const metadataJson = await memoizedFetchMetadata(
+      event.args.configHash,
+      serviceId,
+      "service"
+    );
     const packageHash = metadataJson?.packageHash;
 
     try {

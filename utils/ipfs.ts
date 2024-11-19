@@ -65,7 +65,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
   }
 }
 
-async function generateEmbeddingWithRetry(
+export async function generateEmbeddingWithRetry(
   text: string,
   maxRetries: number = 3,
   initialDelay: number = 1000
@@ -120,6 +120,15 @@ async function downloadIPFSFile(
 
     const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
     const outputPath = path.join(outputDir, sanitizedFileName);
+    //check if the file already is in the database
+    const client = await pool.connect();
+    const checkQuery = `SELECT 1 FROM code_embeddings WHERE component_id = $1 AND file_path = $2`;
+    const result = await client.query(checkQuery, [componentId, outputPath]);
+    if (result.rows.length > 0) {
+      console.log(`File ${fileName} already exists in the database`);
+      client.release();
+      return outputPath;
+    }
     const relativePath = path.relative("./downloads", outputPath);
 
     const response = await axiosInstance({

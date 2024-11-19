@@ -1,5 +1,7 @@
 import axios from "axios";
-import { recursiveDownload } from "./ipfs";
+import { generateEmbeddingWithRetry, recursiveDownload } from "./ipfs";
+import pool from "./postgres";
+import { memoize } from "lodash";
 
 // Helper function to get chain name from contract name
 export const getChainName = (contractName: string) => {
@@ -53,23 +55,35 @@ export const fetchAndEmbedMetadata = async (
   maxRetries = 3,
   componentId: string
 ) => {
-  const metadata = await fetchAndTransformMetadata(configHash, maxRetries);
+  // Create config info object for component type
+  const configInfo = {
+    type: "component",
+    id: componentId,
+  };
+
+  const metadata = await fetchAndTransformMetadata(
+    configHash,
+    maxRetries,
+    configInfo
+  );
   console.log("metadata", metadata?.packageHash);
-  recursiveDownload(metadata?.packageHash, 3, componentId)
-    .then(() => {
-      return metadata;
-    })
-    .catch((error) => {
-      console.error("Error fetching and embedding metadata:", error);
-      return null;
-    });
+
+  if (metadata?.packageHash) {
+    try {
+      await recursiveDownload(metadata.packageHash, 3, componentId);
+    } catch (error) {
+      console.error("Error downloading package:", error);
+    }
+  }
+
   return metadata;
 };
 
 // Add this new helper function
 export const fetchAndTransformMetadata = async (
   configHash: string,
-  maxRetries = 3
+  maxRetries = 3,
+  configInfo: any
 ) => {
   const metadataPrefix = "f01701220";
   const finishedConfigHash = configHash.slice(2);
@@ -110,6 +124,60 @@ export const fetchAndTransformMetadata = async (
         metadataJson.packageHash = null;
       }
 
+      //config info: {type: "component",id: "3"}
+      try {
+        // Create unique ID based on type and entity ID
+        const id = `${configInfo.type}-${configInfo.id}`;
+
+        //check if the embedding already exists
+        const checkQuery = `SELECT 1 FROM metadata_embeddings WHERE id = $1`;
+        const result = await pool.query(checkQuery, [id]);
+        if (result.rows.length > 0) {
+          throw new Error("Embedding already exists");
+        }
+
+        // Generate embedding from metadata name and description
+        const metadataString = `${metadataJson.name}:${metadataJson.description}`;
+        const embedding = await generateEmbeddingWithRetry(metadataString);
+
+        if (!embedding) {
+          throw new Error("Error generating metadata embedding");
+        }
+
+        // Build the insert query based on entity type
+        let insertQuery = `
+          INSERT INTO metadata_embeddings (
+            id,
+            embedding,
+            metadata_content,
+            created_at
+        `;
+
+        // Add the appropriate ID column based on type
+        if (configInfo.type === "component") {
+          insertQuery += `, component_id`;
+        } else if (configInfo.type === "service") {
+          insertQuery += `, service_id`;
+        } else if (configInfo.type === "agent") {
+          insertQuery += `, agent_id`;
+        }
+
+        insertQuery += `) VALUES ($1, $2, $3, CURRENT_TIMESTAMP`;
+
+        // Add the ID value placeholder
+        insertQuery += `, $4)`;
+
+        // Create params array with the appropriate values
+        const params = [id, embedding, metadataString, configInfo.id];
+
+        // Execute the query
+        await pool.query(insertQuery, params);
+
+        console.log(`Stored embedding for ${configInfo.type} ${configInfo.id}`);
+      } catch (error) {
+        console.error("Error storing metadata embedding:", error);
+      }
+
       // Transform IPFS URLs to gateway URLs
       ["image", "code_uri"].forEach((field) => {
         if (metadataJson[field]?.startsWith("ipfs://")) {
@@ -140,3 +208,16 @@ export const fetchAndTransformMetadata = async (
     }
   }
 };
+
+// Update the memoized function calls in AgentServices.ts
+const memoizedFetchMetadata = memoize(
+  (hash: string, agentId: string) =>
+    fetchAndTransformMetadata(hash, 3, { type: "agent", id: agentId }),
+  (hash: string, agentId: string) => `${hash}-${agentId}`
+);
+
+const memoizedFetchAndEmbedMetadata = memoize(
+  (hash: string, componentId: string) =>
+    fetchAndEmbedMetadata(hash, 3, componentId),
+  (hash: string, componentId: string) => `${hash}-${componentId}`
+);
