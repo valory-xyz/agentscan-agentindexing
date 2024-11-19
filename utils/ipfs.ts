@@ -33,51 +33,45 @@ function getNextGateway(): string | undefined {
 }
 
 async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
-  try {
-    const cleanCid = cid.replace(/^https:\/\/[^/]+\/ipfs\//, "");
-    let lastError;
+  const cleanCid = cid.replace(/^https:\/\/[^/]+\/ipfs\//, "");
+  let attempts = 0;
+  let lastError;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const gateway = getNextGateway();
-      const apiUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
-
-      try {
-        console.log(
-          `Attempt ${attempt}/${maxRetries} with gateway: ${gateway}`
-        );
-        const response = await axiosInstance.get(apiUrl, {
-          timeout: 25000,
-        });
-
-        if (response.data?.Objects?.[0]?.Links) {
-          return response.data.Objects[0].Links.map((item: any) => ({
-            name: item.Name,
-            hash: item.Hash,
-            size: item.Size,
-            isDirectory: item.Type === 1 || item.Type === "dir",
-          }));
-        }
-
-        // If Objects is missing, treat as an error and retry
-        console.log(`No Objects found in response, retrying...`);
-        const delay = Math.min(1000 * Math.pow(1.5, attempt - 1), 4000);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      } catch (error: any) {
-        lastError = error;
-        console.log(
-          `Gateway ${gateway} failed, attempt ${attempt}/${maxRetries}`
-        );
-        const delay = Math.min(1000 * Math.pow(1.5, attempt - 1), 5000);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
+  while (attempts < maxRetries) {
+    const gateway = getNextGateway();
+    try {
+      if (!gateway) {
+        throw new Error("No available gateways");
       }
+
+      const apiUrl = `${gateway}/api/v0/ls?arg=${cleanCid}`;
+      const response = await axiosInstance.get(apiUrl);
+
+      if (response.data?.Objects?.[0]?.Links) {
+        return response.data.Objects[0].Links.map((item: any) => ({
+          name: item.Name,
+          hash: item.Hash,
+          size: item.Size,
+          isDirectory: item.Type === 1 || item.Type === "dir",
+        }));
+      }
+
+      // If Objects is missing, treat as an error and retry
+      console.log(`No Objects found in response, retrying...`);
+      const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 4000);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      continue;
+    } catch (error: any) {
+      lastError = error;
+      console.log(
+        `Gateway ${gateway} failed, attempt ${attempts}/${maxRetries}`
+      );
+      const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 5000);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      continue;
     }
-    throw lastError || new Error("No valid Objects found after all retries");
-  } catch (error: any) {
-    console.error("Error reading IPFS directory:", error.message);
-    throw error;
   }
+  throw lastError || new Error("No valid Objects found after all retries");
 }
 
 // Simplify the status enum
@@ -395,8 +389,26 @@ async function processIPFSItem(
   try {
     if (item.isDirectory) {
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
-      const contents = await readIPFSDirectory(dirUrl);
-      const category = await determineCategory(contents);
+
+      // Add fallback for readIPFSDirectory
+      let contents;
+      try {
+        contents = await readIPFSDirectory(dirUrl);
+      } catch (error) {
+        console.error(`Failed to read IPFS directory ${dirUrl}:`, error);
+        // Fallback: treat as empty directory and continue
+        contents = [];
+      }
+
+      // Add fallback for determineCategory
+      let category;
+      try {
+        category = await determineCategory(contents);
+      } catch (error) {
+        console.error(`Failed to determine category for ${dirUrl}:`, error);
+        // Fallback: use a default category or derive from path
+        category = currentPath.split("/")[0] || "unknown";
+      }
 
       let newPath;
       if (category) {
@@ -409,10 +421,23 @@ async function processIPFSItem(
 
       const outputDir = path.join("./downloads", newPath);
       console.log(`Processing directory: ${newPath}`);
-      await fs.mkdir(outputDir, { recursive: true });
 
+      try {
+        await fs.mkdir(outputDir, { recursive: true });
+      } catch (error) {
+        console.error(`Failed to create directory ${outputDir}:`, error);
+        // Continue execution even if directory creation fails
+      }
+
+      // Process contents with individual error handling
       for (const content of contents) {
-        await processIPFSItem(content, newPath, retryAttempts, componentId);
+        try {
+          await processIPFSItem(content, newPath, retryAttempts, componentId);
+        } catch (error) {
+          console.error(`Failed to process item ${content.name}:`, error);
+          // Continue with next item instead of failing completely
+          continue;
+        }
       }
     } else {
       if (
@@ -442,69 +467,106 @@ async function processIPFSItem(
       }
     }
   } catch (error: any) {
-    console.log(`Error processing item ${item.name}:`, error.message);
+    console.log(
+      `Error processing item ${item?.name || "unknown"}:`,
+      error.message
+    );
     return null;
   }
 }
 
-export async function recursiveDownload(
+// Add a helper function for safe error handling
+async function safeDownload(
   ipfsHash: string,
-  retryAttempts = 3,
   componentId: string
-) {
+): Promise<void> {
   try {
-    console.log(`Starting recursive download from hash: ${ipfsHash}`);
-    await fs.mkdir("./downloads", { recursive: true });
+    console.log(`Starting safe download for hash: ${ipfsHash}`);
 
-    const contents = await readIPFSDirectory(ipfsHash);
-    console.log(`Found ${contents.length} items in root directory`);
+    // First, update status to processing
+    const client = await pool.connect();
 
-    // Process each item
-    for (const item of contents) {
-      await processIPFSItem(item, "", retryAttempts, componentId);
+    // Create downloads directory
+    await fs.mkdir("./downloads", { recursive: true }).catch((err) => {
+      console.warn("Directory creation warning:", err);
+    });
+
+    // Try to read directory with better error handling
+    let contents;
+    try {
+      contents = await readIPFSDirectory(ipfsHash);
+      console.log(`Found ${contents?.length || 0} items in root directory`);
+    } catch (error) {
+      console.error(`Failed to read IPFS directory ${ipfsHash}:`, error);
+
+      return;
     }
 
-    console.log(`Completed download for hash: ${ipfsHash}`);
+    if (!contents || !Array.isArray(contents)) {
+      console.error("Invalid contents returned from IPFS");
+      return;
+    }
+
+    // Process each item with individual error handling
+    for (const item of contents) {
+      try {
+        await processIPFSItem(item, "", 3, componentId);
+      } catch (error) {
+        console.error(
+          `Failed to process item ${item?.name || "unknown"}:`,
+          error
+        );
+        // Continue with next item instead of failing completely
+      }
+    }
   } catch (error) {
-    console.error(`Failed to download ${ipfsHash}:`, error);
-    throw error;
+    console.error(`Safe download failed for ${ipfsHash}:`, error);
   } finally {
-    // Cleanup
+    // Cleanup with error handling
     try {
       await fs.rm("./downloads", { recursive: true, force: true });
       console.log("Cleaned up downloads directory");
     } catch (cleanupError) {
-      console.error("Failed to clean up downloads directory:", cleanupError);
+      console.warn("Cleanup warning:", cleanupError);
     }
   }
 }
 
-// Simplified retry function
-export async function retryFailedProcessing() {
-  const client = await pool.connect();
-  try {
-    const failedFiles = await client.query(
-      `
-      SELECT component_id, file_path 
-      FROM code_processing_status 
-      WHERE status = $1 
-      AND updated_at < NOW() - INTERVAL '1 hour'
-      LIMIT 100
-    `,
-      [ProcessingStatus.FAILED]
-    );
-
-    for (const row of failedFiles.rows) {
-      try {
-        await recursiveDownload(row.component_id, 3, row.component_id);
-      } catch (error) {
-        console.error(`Failed to reprocess ${row.file_path}:`, error);
-      }
-    }
-  } finally {
-    client.release();
-  }
+// Replace the existing recursiveDownload function
+export async function recursiveDownload(
+  ipfsHash: string,
+  retryAttempts = 3,
+  componentId: string
+): Promise<void> {
+  await safeDownload(ipfsHash, componentId);
 }
+
+// // Simplified retry function
+// export async function retryFailedProcessing() {
+//   const client = await pool.connect();
+//   try {
+//     const failedFiles = await client.query(
+//       `
+//       SELECT component_id, file_path
+//       FROM code_processing_status
+//       WHERE status = $1
+//       AND updated_at < NOW() - INTERVAL '1 hour'
+//       LIMIT 100
+//     `,
+//       [ProcessingStatus.FAILED]
+//     );
+
+//     for (const row of failedFiles.rows) {
+//       try {
+//         await recursiveDownload(row.component_id, 3, row.component_id);
+//       } catch (error) {
+//         console.error(`Failed to reprocess ${row.file_path}:`, error);
+//       }
+//     }
+//   } finally {
+//     client.release();
+//   }
+// }
 
 // Add this helper function to handle file chunk naming
 function getChunkFileName(
