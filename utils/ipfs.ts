@@ -66,7 +66,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       }
 
       // If Objects is missing, treat as an error and retry
-      console.log(`No Objects found in response, retrying...`);
+      console.log(`No Objects found in response, retrying...`, apiUrl);
       const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 4000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
