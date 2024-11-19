@@ -9,9 +9,9 @@ import { PoolClient } from "pg";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
-  timeout: 5000,
+  timeout: 20000,
   maxRedirects: 3,
-  validateStatus: (status) => status < 400,
+  validateStatus: (status) => status >= 200 && status < 500, // More specific status validat
 });
 
 async function readIPFSDirectory(cid: string, maxRetries: number = 20) {
@@ -106,9 +106,11 @@ async function downloadIPFSFile(
   ipfsHash: string,
   fileName: string,
   outputDir: string = "./downloads",
-  componentId: string
+  componentId: string,
+  maxRetries: number = 3
 ): Promise<string | null> {
   let client: PoolClient | undefined;
+
   try {
     console.log("Original hash:", ipfsHash);
     console.log("Starting download process for:", fileName);
@@ -123,24 +125,22 @@ async function downloadIPFSFile(
     console.log("Encoded hash:", encodedHash);
 
     const fileUrl = `https://gateway.autonolas.tech/ipfs/${encodedHash}`;
-    console.log("Attempting to download from:", fileUrl);
+    console.log(`Downloading from ${fileUrl}`);
 
     // Add timeout to axios request
     const response = await axiosInstance({
       method: "get",
       url: fileUrl,
       responseType: "stream",
-      timeout: 5000, // 5 second timeout
     });
 
     await fs.mkdir(outputDir, { recursive: true });
-
     const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
     const outputPath = path.join(outputDir, sanitizedFileName);
     //check if the file already is in the database
     client = await pool.connect();
     await client.query("BEGIN");
-    const checkQuery = `SELECT 1 FROM code_embeddings WHERE component_id = $1 AND file_path = $2`;
+    const checkQuery = `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`;
     const result = await client.query(checkQuery, [componentId, outputPath]);
     console.log("Check query result:", result.rows);
     if (result.rows.length > 0) {
@@ -150,91 +150,113 @@ async function downloadIPFSFile(
     }
     const relativePath = path.relative("./downloads", outputPath);
 
-    return new Promise((resolve, reject) => {
-      const writer = fsSync.createWriteStream(outputPath);
-      let receivedData = false;
+    const downloadWithRetry = async (attempt = 1): Promise<any> => {
+      return new Promise((resolve, reject) => {
+        const writer = fsSync.createWriteStream(outputPath);
+        let receivedData = false;
+        let timeoutId: NodeJS.Timeout;
 
-      response.data.on("data", () => {
-        console.log("Received data");
-        receivedData = true;
-      });
+        // Set a timeout for the download
+        timeoutId = setTimeout(async () => {
+          console.log(`Download timed out for ${fileName} after 20 seconds`);
+          writer.end();
+          await fs.unlink(outputPath).catch(console.error);
 
-      writer.on("finish", async () => {
-        try {
-          if (receivedData) {
-            const codeContent = await fs.readFile(outputPath, "utf-8");
-            if (!codeContent) {
-              console.error("No code content received");
-              await fs.unlink(outputPath);
-              return resolve(outputPath);
-            }
-            console.log("Code content received");
-
-            const embedding = await generateEmbeddingWithRetry(codeContent);
-            console.log("Embedding received");
-            if (!embedding) {
-              console.error("No embedding received");
-              await fs.unlink(outputPath);
-              return resolve(outputPath);
-            }
-
-            client = await pool.connect();
-            await client.query("BEGIN");
-
-            const insertQuery = `
-              INSERT INTO code_embeddings (
-                component_id,
-                file_path,
-                embedding,
-                code_content
-              ) VALUES ($1, $2, $3, $4)
-              ON CONFLICT (component_id, file_path) 
-              DO UPDATE SET
-                embedding = EXCLUDED.embedding,
-                code_content = EXCLUDED.code_content;
-            `;
-
-            const result = await client.query(insertQuery, [
-              componentId,
-              relativePath,
-              embedding,
-              codeContent,
-            ]);
-
-            await client.query("COMMIT");
-
-            await fs.unlink(outputPath);
-            console.log(`Deleted file: ${outputPath}`);
-            return resolve(outputPath);
+          if (attempt < maxRetries) {
+            console.log(
+              `Retrying download attempt ${attempt + 1}/${maxRetries}`
+            );
+            const result = await downloadWithRetry(attempt + 1);
+            resolve(result);
           } else {
-            await fs.unlink(outputPath);
+            reject(
+              new Error(`Failed to download after ${maxRetries} attempts`)
+            );
+          }
+        }, 20000); // 20 second timeout
+
+        response.data.on("data", () => {
+          console.log("Received data");
+          receivedData = true;
+        });
+
+        writer.on("finish", async () => {
+          clearTimeout(timeoutId);
+          try {
+            if (receivedData) {
+              const codeContent = await fs.readFile(outputPath, "utf-8");
+              if (!codeContent) {
+                console.error("No code content received");
+                await fs.unlink(outputPath);
+                return resolve(outputPath);
+              }
+              console.log("Code content received");
+
+              const embedding = await generateEmbeddingWithRetry(codeContent);
+              console.log("Embedding received");
+              if (!embedding) {
+                console.error("No embedding received");
+                await fs.unlink(outputPath);
+                return resolve(outputPath);
+              }
+
+              client = await pool.connect();
+              await client.query("BEGIN");
+
+              const insertQuery = `
+                INSERT INTO code_embeddings (
+                  component_id,
+                  file_path,
+                  embedding,
+                  code_content
+                ) VALUES ($1, $2, $3, $4)
+                ON CONFLICT (component_id, file_path) 
+                DO UPDATE SET
+                  embedding = EXCLUDED.embedding,
+                  code_content = EXCLUDED.code_content;
+              `;
+
+              const result = await client.query(insertQuery, [
+                componentId,
+                relativePath,
+                embedding,
+                codeContent,
+              ]);
+
+              await client.query("COMMIT");
+
+              await fs.unlink(outputPath);
+              console.log(`Deleted file: ${outputPath}`);
+              return resolve(outputPath);
+            } else {
+              await fs.unlink(outputPath);
+              resolve(outputPath);
+            }
+          } catch (error) {
+            console.log("Error in writer finish handler:", error);
+            await fs.unlink(outputPath).catch(console.error);
+            if (client) {
+              await client.query("ROLLBACK").catch(console.error);
+              client.release();
+            }
             resolve(outputPath);
           }
-        } catch (error) {
-          console.log("Error in writer finish handler:", error);
+        });
+
+        writer.on("error", async (err) => {
+          clearTimeout(timeoutId);
+          console.log("Write stream error:", err);
           await fs.unlink(outputPath).catch(console.error);
-          if (client) {
-            await client.query("ROLLBACK").catch(console.error);
-            client.release();
-          }
-          resolve(outputPath);
-        }
-      });
+          reject(err);
+        });
 
-      writer.on("error", async (err) => {
-        console.log("Write stream error:", err);
-        await fs.unlink(outputPath).catch(console.error);
-        resolve(outputPath);
+        response.data.pipe(writer);
       });
+    };
 
-      response.data.pipe(writer);
-    });
+    return await downloadWithRetry();
   } catch (error: any) {
-    console.error(`Detailed error in downloadIPFSFile for ${fileName}:`, {
-      message: error.message,
-      code: error.code,
-      response: error.response?.status,
-    });
+    console.error("Download failed:", error.message);
     if (client) {
       await client.query("ROLLBACK").catch(console.error);
       client.release();
