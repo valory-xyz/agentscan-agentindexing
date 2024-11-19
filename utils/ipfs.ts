@@ -407,14 +407,17 @@ async function processIPFSItem(
         await processIPFSItem(content, newPath, retryAttempts, componentId);
       }
     } else {
-      // Only download .py and .proto files
-      console.log("Item name:", item.name);
-      if (item.name.endsWith(".py") || item.name.endsWith(".proto")) {
+      // Update file extension check to include README.md
+      if (
+        item.name.endsWith(".py") ||
+        item.name.endsWith(".proto") ||
+        item.name.toLowerCase() === "readme.md"
+      ) {
         const outputDir = path.join("./downloads", currentPath);
-        console.log("Downloading python or proto file:", item.name);
+        console.log("Downloading file:", item.name);
         await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
       } else {
-        console.log("Skipping non-python or proto file:", item.name);
+        console.log("Skipping non-supported file:", item.name);
       }
     }
   } catch (error: any) {
