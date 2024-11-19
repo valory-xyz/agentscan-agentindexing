@@ -225,16 +225,17 @@ async function downloadIPFSFile(
   componentId: string,
   maxRetries: number = 15
 ): Promise<string | null> {
-  let client = await pool.connect();
   const relativePath = path.relative(
     "./downloads",
     path.join(outputDir, fileName)
   );
 
-  try {
-    await client.query("BEGIN");
-    console.log(`Starting download for ${fileName}...`);
+  console.log(`Starting download for ${fileName}...`);
 
+  // Get the client from the current transaction context
+  const client = await pool.connect();
+
+  try {
     // Update status to processing
     await client.query(
       `
@@ -360,19 +361,14 @@ async function downloadIPFSFile(
   } catch (error: any) {
     console.error(`Download failed for ${fileName}:`, error.message);
 
-    try {
-      await client.query(
-        `
-        UPDATE code_processing_status 
-        SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE component_id = $3 AND file_path = $4
-      `,
-        [ProcessingStatus.FAILED, error.message, componentId, relativePath]
-      );
-      await client.query("ROLLBACK");
-    } catch (rollbackError) {
-      console.error("Error during rollback:", rollbackError);
-    }
+    await client.query(
+      `
+      UPDATE code_processing_status 
+      SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
+      WHERE component_id = $3 AND file_path = $4
+    `,
+      [ProcessingStatus.FAILED, error.message, componentId, relativePath]
+    );
 
     throw error;
   } finally {
@@ -397,9 +393,10 @@ async function processIPFSItem(
   retryAttempts = 25,
   componentId: string
 ) {
+  let client = null;
+
   try {
-    console.log("Processing item:", item.name);
-    // Add check for tests folder
+    // Skip tests folder early
     if (item.name === "tests" || currentPath.includes("tests")) {
       console.log("Skipping tests folder");
       return;
@@ -414,6 +411,7 @@ async function processIPFSItem(
       const category = await determineCategory(contents);
 
       console.log("Category:", category);
+
       // Create the new path, including category if found
       let newPath;
       if (category) {
@@ -423,16 +421,15 @@ async function processIPFSItem(
       }
 
       const outputDir = path.join("./downloads", newPath);
-
       console.log(`Entering directory: ${newPath}`);
       await fs.mkdir(outputDir, { recursive: true });
 
-      // Recursively process directory contents
+      // Process each item in directory with its own transaction
       for (const content of contents) {
         await processIPFSItem(content, newPath, retryAttempts, componentId);
       }
     } else {
-      // Update file extension check to include README.md
+      // Process file
       if (
         item.name.endsWith(".py") ||
         item.name.endsWith(".proto") ||
@@ -440,7 +437,24 @@ async function processIPFSItem(
       ) {
         const outputDir = path.join("./downloads", currentPath);
 
-        await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
+        // Each file download gets its own transaction
+        client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+
+          await downloadIPFSFile(item.hash, item.name, outputDir, componentId);
+
+          await client.query("COMMIT");
+        } catch (error) {
+          if (client) {
+            await client.query("ROLLBACK");
+          }
+          throw error;
+        } finally {
+          if (client) {
+            client.release();
+          }
+        }
       } else {
         console.log("Skipping non-supported file:", item.name);
       }
@@ -458,11 +472,8 @@ export async function recursiveDownload(
 ) {
   try {
     console.log(`Starting recursive download from hash: ${ipfsHash}`);
-
-    // Create base downloads directory
     await fs.mkdir("./downloads", { recursive: true });
 
-    // Read root directory
     const contents = await readIPFSDirectory(ipfsHash);
     console.log(`Found ${contents.length} items in root directory`);
 
@@ -474,14 +485,9 @@ export async function recursiveDownload(
     console.log(`Completed download for hash: ${ipfsHash}`);
   } catch (error) {
     console.error(`Failed to download ${ipfsHash}:`, error);
-    await fs
-      .rm("./downloads", { recursive: true, force: true })
-      .catch((error) =>
-        console.error("Failed to clean up downloads directory:", error)
-      );
     throw error;
   } finally {
-    // Ensure cleanup happens whether there's an error or not
+    // Cleanup
     try {
       await fs.rm("./downloads", { recursive: true, force: true });
       console.log("Cleaned up downloads directory");
