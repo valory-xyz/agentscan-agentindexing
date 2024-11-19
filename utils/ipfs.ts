@@ -225,18 +225,27 @@ async function downloadIPFSFile(
   componentId: string,
   maxRetries: number = 15
 ): Promise<string | null> {
-  const relativePath = path.relative(
-    "./downloads",
-    path.join(outputDir, fileName)
-  );
+  const fullPath = path.join(outputDir, fileName);
+  const relativePath = fullPath.replace(/^\.\/downloads\//, "");
 
-  console.log(`Starting download for ${fileName}...`);
+  console.log(`Starting download for ${relativePath}...`);
 
-  // Get the client from the current transaction context
   const client = await pool.connect();
 
   try {
-    // Update status to processing
+    await client.query("BEGIN");
+
+    const checkResult = await client.query(
+      `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
+      [componentId, relativePath]
+    );
+
+    if (checkResult.rows.length > 0) {
+      console.log(`File ${relativePath} already exists in the database`);
+      await client.query("COMMIT");
+      return fullPath;
+    }
+
     await client.query(
       `
       INSERT INTO code_processing_status (component_id, file_path, status)
@@ -248,18 +257,6 @@ async function downloadIPFSFile(
     `,
       [componentId, relativePath, ProcessingStatus.PROCESSING]
     );
-
-    // Check if file already exists in database
-    const checkResult = await client.query(
-      `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
-      [componentId, relativePath]
-    );
-
-    if (checkResult.rows.length > 0) {
-      console.log(`File ${fileName} already exists in the database`);
-      await client.query("COMMIT");
-      return path.join(outputDir, fileName);
-    }
 
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -396,40 +393,28 @@ async function processIPFSItem(
   let client = null;
 
   try {
-    // Skip tests folder early
-    if (item.name === "tests" || currentPath.includes("tests")) {
-      console.log("Skipping tests folder");
-      return;
-    }
-
     if (item.isDirectory) {
-      // Get contents of this directory
       const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
       const contents = await readIPFSDirectory(dirUrl);
-
-      // Determine category from YAML files
       const category = await determineCategory(contents);
 
-      console.log("Category:", category);
-
-      // Create the new path, including category if found
       let newPath;
       if (category) {
-        newPath = path.join(category, item.name);
+        newPath = currentPath
+          ? path.join(currentPath, item.name)
+          : path.join(category, item.name);
       } else {
         newPath = currentPath ? path.join(currentPath, item.name) : item.name;
       }
 
       const outputDir = path.join("./downloads", newPath);
-      console.log(`Entering directory: ${newPath}`);
+      console.log(`Processing directory: ${newPath}`);
       await fs.mkdir(outputDir, { recursive: true });
 
-      // Process each item in directory with its own transaction
       for (const content of contents) {
         await processIPFSItem(content, newPath, retryAttempts, componentId);
       }
     } else {
-      // Process file
       if (
         item.name.endsWith(".py") ||
         item.name.endsWith(".proto") ||
@@ -437,7 +422,6 @@ async function processIPFSItem(
       ) {
         const outputDir = path.join("./downloads", currentPath);
 
-        // Each file download gets its own transaction
         client = await pool.connect();
         try {
           await client.query("BEGIN");
@@ -455,8 +439,6 @@ async function processIPFSItem(
             client.release();
           }
         }
-      } else {
-        console.log("Skipping non-supported file:", item.name);
       }
     }
   } catch (error: any) {
@@ -533,11 +515,10 @@ function getChunkFileName(
   if (totalChunks <= 1) return originalPath;
 
   const parsedPath = path.parse(originalPath);
-  return path.format({
-    dir: parsedPath.dir,
-    name: `${parsedPath.name}.part${chunkIndex + 1}of${totalChunks}`,
-    ext: parsedPath.ext,
-  });
+  const directory = parsedPath.dir;
+  const newName = `${parsedPath.name}.part${chunkIndex + 1}of${totalChunks}`;
+
+  return path.join(directory, newName + parsedPath.ext);
 }
 
 // Update the processCodeContent function
