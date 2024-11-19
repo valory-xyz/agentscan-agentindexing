@@ -221,7 +221,7 @@ async function downloadIPFSFile(
   maxRetries: number = 15
 ): Promise<string | null> {
   const fullPath = path.join(outputDir, fileName);
-  const relativePath = fullPath.replace(/^\.\/downloads\//, "");
+  const relativePath = fileName;
 
   console.log(`Starting download for ${relativePath}...`);
 
