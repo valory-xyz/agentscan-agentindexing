@@ -531,17 +531,6 @@ async function processCodeContent(
   // Generate embeddings (might return single or multiple embeddings)
   const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
 
-  // Detailed debug logging
-  console.log("=== Debug Embeddings ===");
-  console.log(`File: ${relativePath}`);
-  console.log("Embeddings length:", embeddings.length);
-  console.log("Embeddings type:", typeof embeddings);
-  console.log("Is array?", Array.isArray(embeddings));
-  console.log("First element:", embeddings[0]);
-  console.log("First element type:", typeof embeddings[0]);
-  console.log("First element length:", embeddings[0]?.length);
-  console.log("======================");
-
   if (!Array.isArray(embeddings) || embeddings.length === 1) {
     console.log("Processing as single embedding");
     // Single embedding case - store as normal
@@ -569,13 +558,9 @@ async function processCodeContent(
     ]);
   } else {
     console.log("Processing as multiple embeddings");
-    console.log(`Number of embeddings: ${embeddings.length}`);
-    console.log("Sample of first embedding:", embeddings[0].slice(0, 5));
 
     // Multiple embeddings case
     const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
-    console.log(`Number of text chunks: ${chunks.length}`);
-    console.log(`Number of embeddings: ${embeddings.length}`);
 
     for (let i = 0; i < embeddings.length; i++) {
       const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
