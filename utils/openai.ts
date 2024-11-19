@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import pgvector from "pgvector";
 
 // Add these constants at the top of the file
-export const MAX_TOKENS = 8000; // Slightly below the 8192 limit to provide safety margin
+export const MAX_TOKENS = 7500; // Slightly below the 8192 limit to provide safety margin
 export const TOKEN_OVERLAP = 200;
 
 dotenv.config();
@@ -92,24 +92,68 @@ export async function generateEmbeddingWithRetry(
 }
 
 export function splitTextIntoChunks(text: string, maxTokens: number): string[] {
+  if (!text) return [];
+
   const chunks: string[] = [];
   let currentChunk = "";
-  const words = text.split(/\s+/);
 
-  for (const word of words) {
-    const testChunk = currentChunk + " " + word;
-    if (estimateTokens(testChunk) > maxTokens) {
-      chunks.push(currentChunk.trim());
-      currentChunk = word;
+  // Split on sentence boundaries first, then fallback to word boundaries
+  const sentences = text.match(/[^.!?]+[.!?]+|\s*[^.!?]+$/g) || [text];
+
+  for (let sentence of sentences) {
+    sentence = sentence.trim();
+    const sentenceTokens = estimateTokens(sentence);
+
+    // If a single sentence exceeds maxTokens, split it into words
+    if (sentenceTokens > maxTokens) {
+      const words = sentence.split(/\s+/);
+
+      for (const word of words) {
+        const testChunk = currentChunk ? `${currentChunk} ${word}` : word;
+        const testChunkTokens = estimateTokens(testChunk);
+
+        if (testChunkTokens > maxTokens - TOKEN_OVERLAP) {
+          if (currentChunk) {
+            chunks.push(currentChunk.trim());
+          }
+          currentChunk = word;
+        } else {
+          currentChunk = testChunk;
+        }
+      }
     } else {
-      currentChunk = testChunk;
+      // Try to add the sentence to the current chunk
+      const testChunk = currentChunk ? `${currentChunk} ${sentence}` : sentence;
+      const testChunkTokens = estimateTokens(testChunk);
+
+      if (testChunkTokens > maxTokens - TOKEN_OVERLAP) {
+        if (currentChunk) {
+          chunks.push(currentChunk.trim());
+        }
+        currentChunk = sentence;
+      } else {
+        currentChunk = testChunk;
+      }
     }
   }
+
+  // Add the last chunk if it exists
   if (currentChunk) {
     chunks.push(currentChunk.trim());
   }
 
-  return chunks;
+  // Add overlap between chunks for better context
+  return chunks.map((chunk, index) => {
+    if (index === 0) return chunk;
+
+    // Get some context from the previous chunk
+    const prevChunk = chunks[index - 1] ?? "";
+    const overlapText = prevChunk
+      .split(/\s+/)
+      .slice(-TOKEN_OVERLAP / 20)
+      .join(" ");
+    return `${overlapText} ${chunk}`;
+  });
 }
 
 export default openai;
