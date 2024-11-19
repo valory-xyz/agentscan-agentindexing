@@ -5,6 +5,7 @@ import path from "path";
 import openai from "./openai";
 import pool from "./postgres";
 import pgvector from "pgvector";
+import { PoolClient } from "pg";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
@@ -107,6 +108,7 @@ async function downloadIPFSFile(
   outputDir: string = "./downloads",
   componentId: string
 ): Promise<string> {
+  let client: PoolClient | undefined;
   try {
     console.log("Original hash:", ipfsHash);
     const decodedHash = decodeURIComponent(ipfsHash);
@@ -121,7 +123,8 @@ async function downloadIPFSFile(
     const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
     const outputPath = path.join(outputDir, sanitizedFileName);
     //check if the file already is in the database
-    const client = await pool.connect();
+    client = await pool.connect();
+    await client.query("BEGIN");
     const checkQuery = `SELECT 1 FROM code_embeddings WHERE component_id = $1 AND file_path = $2`;
     const result = await client.query(checkQuery, [componentId, outputPath]);
     if (result.rows.length > 0) {
@@ -146,91 +149,87 @@ async function downloadIPFSFile(
       });
 
       writer.on("finish", async () => {
-        if (receivedData) {
-          try {
+        try {
+          if (receivedData) {
             const codeContent = await fs.readFile(outputPath, "utf-8");
-
             if (!codeContent) {
               console.error("No code content received");
-              await fs.unlink(outputPath).catch(console.error);
+              await fs.unlink(outputPath);
               return resolve(outputPath);
             }
 
             const embedding = await generateEmbeddingWithRetry(codeContent);
-
             if (!embedding) {
               console.error("No embedding received");
-              await fs.unlink(outputPath).catch(console.error);
-              return resolve(outputPath);
-            }
-
-            const client = await pool.connect();
-            try {
-              await client.query("BEGIN");
-
-              const insertQuery = `
-                INSERT INTO code_embeddings (
-                  component_id,
-                  file_path,
-                  embedding,
-                  code_content
-                ) VALUES ($1, $2, $3, $4)
-                ON CONFLICT (component_id, file_path) 
-                DO UPDATE SET
-                  embedding = EXCLUDED.embedding,
-                  code_content = EXCLUDED.code_content;
-              `;
-
-              await client.query(insertQuery, [
-                componentId,
-                relativePath,
-                embedding,
-                codeContent,
-              ]);
-
-              const reindexQuery = `
-                REINDEX INDEX code_embeddings_embedding_idx;
-              `;
-              await client.query(reindexQuery);
-
-              await client.query("COMMIT");
-
-              console.log(
-                `Processed, stored, and reindexed embedding for ${fileName}`
-              );
               await fs.unlink(outputPath);
-              console.log(`Deleted file: ${outputPath}`);
               return resolve(outputPath);
-            } catch (error) {
-              await client.query("ROLLBACK");
-              console.error("Error processing embedding:", error);
-              await fs.unlink(outputPath).catch(console.error);
-              return resolve(outputPath);
-            } finally {
-              client.release();
             }
-          } catch (error) {
-            console.error("Error processing embedding:", error);
-            await fs.unlink(outputPath).catch(console.error);
+
+            client = await pool.connect();
+            await client.query("BEGIN");
+
+            const insertQuery = `
+              INSERT INTO code_embeddings (
+                component_id,
+                file_path,
+                embedding,
+                code_content
+              ) VALUES ($1, $2, $3, $4)
+              ON CONFLICT (component_id, file_path) 
+              DO UPDATE SET
+                embedding = EXCLUDED.embedding,
+                code_content = EXCLUDED.code_content;
+            `;
+
+            await client.query(insertQuery, [
+              componentId,
+              relativePath,
+              embedding,
+              codeContent,
+            ]);
+
+            const reindexQuery = `
+              REINDEX INDEX code_embeddings_embedding_idx;
+            `;
+            await client.query(reindexQuery);
+
+            await client.query("COMMIT");
+
+            console.log(
+              `Processed, stored, and reindexed embedding for ${fileName}`
+            );
+            await fs.unlink(outputPath);
+            console.log(`Deleted file: ${outputPath}`);
             return resolve(outputPath);
-          }
-        } else {
-          fsSync.unlink(outputPath, () => {
+          } else {
+            await fs.unlink(outputPath);
             resolve(outputPath);
-          });
+          }
+        } catch (error) {
+          console.error("Error in writer finish handler:", error);
+          await fs.unlink(outputPath).catch(console.error);
+          if (client) {
+            await client.query("ROLLBACK").catch(console.error);
+            client.release();
+          }
+          resolve(outputPath);
         }
       });
 
-      writer.on("error", (err) => {
-        fsSync.unlink(outputPath, () => {
-          resolve(outputPath);
-        });
+      writer.on("error", async (err) => {
+        console.error("Write stream error:", err);
+        await fs.unlink(outputPath).catch(console.error);
+        resolve(outputPath);
       });
 
       response.data.pipe(writer);
     });
   } catch (error: any) {
     console.error(`Error downloading file ${fileName}:`, error.message);
+    if (client) {
+      await client.query("ROLLBACK").catch(console.error);
+      client.release();
+    }
     throw error;
   }
 }
@@ -333,13 +332,19 @@ export async function recursiveDownload(
     console.log("Cleaned up downloads directory");
   } catch (error) {
     console.error(`Failed to download ${ipfsHash}:`, error);
-    // Attempt to clean up downloads directory even if there was an error
+    await fs
+      .rm("./downloads", { recursive: true, force: true })
+      .catch((error) =>
+        console.error("Failed to clean up downloads directory:", error)
+      );
+    throw error;
+  } finally {
+    // Ensure cleanup happens whether there's an error or not
     try {
       await fs.rm("./downloads", { recursive: true, force: true });
-      console.log("Cleaned up downloads directory after error");
+      console.log("Cleaned up downloads directory");
     } catch (cleanupError) {
       console.error("Failed to clean up downloads directory:", cleanupError);
     }
-    throw error;
   }
 }
