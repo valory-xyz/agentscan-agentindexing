@@ -67,6 +67,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       console.log(`No Objects found in response, retrying...`);
       const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 4000);
       await new Promise((resolve) => setTimeout(resolve, delay));
+      attempts++;
       continue;
     } catch (error: any) {
       lastError = error;
@@ -75,6 +76,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       );
       const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 5000);
       await new Promise((resolve) => setTimeout(resolve, delay));
+      attempts++;
       continue;
     }
   }
