@@ -137,8 +137,18 @@ export const fetchAndTransformMetadata = async (
         }
 
         // Generate embedding from metadata name and description
-        const metadataString = `${metadataJson.name}-${metadataJson.description}`;
-        const embedding = await generateEmbeddingWithRetry(metadataString);
+        const metadataString = `${metadataJson.name || ""} ${
+          metadataJson.description || ""
+        }`;
+
+        // Clean up the string: remove extra whitespace and newlines
+        const cleanedMetadataString = metadataString
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const embedding = await generateEmbeddingWithRetry(
+          cleanedMetadataString
+        );
 
         if (!embedding) {
           throw new Error("Error generating metadata embedding");
