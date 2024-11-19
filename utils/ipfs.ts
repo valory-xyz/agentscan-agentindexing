@@ -52,6 +52,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
           Accept: "application/vnd.ipld.dag-json", // Request DAG-JSON instead of HTML
           "Cache-Control": "only-if-cached",
           "If-None-Match": "*",
+          "X-Content-Type-Options": "nosniff",
         },
         params: {
           format: "dag-json", // Explicitly request DAG-JSON format in URL
