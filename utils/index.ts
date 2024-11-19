@@ -238,16 +238,3 @@ export const fetchAndTransformMetadata = async (
     }
   }
 };
-
-// Update the memoized function calls in AgentServices.ts
-const memoizedFetchMetadata = memoize(
-  (hash: string, agentId: string) =>
-    fetchAndTransformMetadata(hash, 3, { type: "agent", id: agentId }),
-  (hash: string, agentId: string) => `${hash}-${agentId}`
-);
-
-const memoizedFetchAndEmbedMetadata = memoize(
-  (hash: string, componentId: string) =>
-    fetchAndEmbedMetadata(hash, 3, componentId),
-  (hash: string, componentId: string) => `${hash}-${componentId}`
-);
