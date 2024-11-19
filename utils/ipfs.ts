@@ -123,6 +123,7 @@ async function downloadIPFSFile(
         [componentId, relativePath]
       );
     });
+    console.log(`Check result: ${checkResult.rows}`);
 
     if (checkResult.rows.length > 0) {
       console.log(`File ${relativePath} already exists in the database`);
@@ -143,6 +144,7 @@ async function downloadIPFSFile(
         [componentId, relativePath, ProcessingStatus.PROCESSING]
       );
     });
+    console.log(`Set processing status for ${relativePath}`);
 
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -177,6 +179,7 @@ async function downloadIPFSFile(
         const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
 
         if (cleanedCodeContent.includes("Blocked content")) {
+          console.log(`Blocked content detected`);
           throw new Error("Blocked content detected");
         }
 
@@ -187,10 +190,10 @@ async function downloadIPFSFile(
         const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
         const outputPath = path.join(outputDir, sanitizedFileName);
         await fs.writeFile(outputPath, codeContent);
-
+        console.log(`Wrote file to ${outputPath}`);
         // Process the content
         await processCodeContent(componentId, relativePath, cleanedCodeContent);
-
+        console.log(`Processed code content for ${relativePath}`);
         // Update status to completed
         await executeQuery(async (client) => {
           await client.query(
@@ -202,7 +205,7 @@ async function downloadIPFSFile(
             [ProcessingStatus.COMPLETED, componentId, relativePath]
           );
         });
-
+        console.log(`Updated status to completed for ${relativePath}`);
         return outputPath;
       } catch (error: any) {
         lastError = error;
