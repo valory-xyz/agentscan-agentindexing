@@ -16,11 +16,12 @@ export const createChainScopedId = (
   chain: string,
   serviceId: string
 ): string => {
-  // If serviceId already contains the chain name, don't add it again
-  if (serviceId.startsWith(`service-${chain}`)) {
-    return serviceId;
-  }
-  return `service-${chain}-${serviceId}`;
+  // First, clean up the serviceId by removing any existing prefixes
+  const cleanId = serviceId
+    .replace(/^service-/g, "") // Remove any leading 'service-'
+    .replace(new RegExp(`^${chain}-`, "i"), ""); // Remove any leading 'chainname-'
+
+  return `${chain}-${cleanId}`;
 };
 
 // List all contract names
