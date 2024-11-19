@@ -182,11 +182,13 @@ async function downloadIPFSFile(
                   `Retrying download attempt ${attempt + 1}/${maxRetries}`
                 );
                 const result = await downloadWithRetry(attempt + 1);
+                console.log("Download result:", result);
                 resolve(result);
               } else {
                 reject(
                   new Error(`Failed to download after ${maxRetries} attempts`)
                 );
+                console.log("Download failed");
               }
             }, 20000); // 20 second timeout
 
@@ -210,55 +212,71 @@ async function downloadIPFSFile(
                   const embedding = await generateEmbeddingWithRetry(
                     codeContent
                   );
-                  console.log("Embedding received");
+                  console.log("Embedding received", embedding);
                   if (!embedding) {
                     console.error("No embedding received");
                     await fs.unlink(outputPath);
                     return resolve(outputPath);
                   }
 
-                  client = await pool.connect();
-                  await client.query("BEGIN");
+                  // Get a new client connection if needed
+                  if (!client) {
+                    client = await pool.connect();
+                  }
 
-                  const insertQuery = `
-                    INSERT INTO code_embeddings (
-                      component_id,
-                      file_path,
+                  try {
+                    await client.query("BEGIN");
+                    console.log("Starting database transaction");
+
+                    const insertQuery = `
+                      INSERT INTO code_embeddings (
+                        component_id,
+                        file_path,
+                        embedding,
+                        code_content
+                      ) VALUES ($1, $2, $3, $4)
+                      ON CONFLICT (component_id, file_path) 
+                      DO UPDATE SET
+                        embedding = EXCLUDED.embedding,
+                        code_content = EXCLUDED.code_content
+                      RETURNING *;
+                    `;
+
+                    const result = await client.query(insertQuery, [
+                      componentId,
+                      relativePath,
                       embedding,
-                      code_content
-                    ) VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (component_id, file_path) 
-                    DO UPDATE SET
-                      embedding = EXCLUDED.embedding,
-                      code_content = EXCLUDED.code_content
-                    RETURNING *;
-                  `;
+                      codeContent,
+                    ]);
 
-                  const result = await client.query(insertQuery, [
-                    componentId,
-                    relativePath,
-                    embedding,
-                    codeContent,
-                  ]);
-                  console.log("Insert result:", result.rows);
+                    console.log("Insert query parameters:", {
+                      componentId,
+                      relativePath,
+                      embeddingLength: embedding.length,
+                      contentLength: codeContent.length,
+                    });
 
-                  await client.query("COMMIT");
+                    await client.query("COMMIT");
+                    console.log("Database transaction committed successfully");
+                  } catch (dbError) {
+                    console.error("Database error:", dbError);
+                    await client.query("ROLLBACK");
+                    throw dbError;
+                  }
 
                   await fs.unlink(outputPath);
-                  console.log(`Deleted file: ${outputPath}`);
                   return resolve(outputPath);
-                } else {
-                  await fs.unlink(outputPath);
-                  resolve(outputPath);
                 }
               } catch (error) {
-                console.log("Error in writer finish handler:", error);
-                await fs.unlink(outputPath).catch(console.error);
+                console.error("Error in writer finish handler:", error);
                 if (client) {
                   await client.query("ROLLBACK").catch(console.error);
+                }
+                reject(error);
+              } finally {
+                if (client) {
                   client.release();
                 }
-                resolve(outputPath);
               }
             });
 
