@@ -58,7 +58,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         // Prevent axios from trying to parse the response
       });
 
-      console.log(`Response: ${response.data}`);
+      console.log(`Response: ${JSON.stringify(response.data)}`);
       // Parse the response manually to handle both string and object responses
       let parsedData;
       try {
