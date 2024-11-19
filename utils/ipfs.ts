@@ -181,7 +181,6 @@ const downloadWithRetry = async (
         }
         try {
           await processCodeContent(
-            client,
             componentId,
             relativePath,
             cleanedCodeContent
@@ -311,7 +310,6 @@ async function downloadIPFSFile(
 
                 // Process the code content within the same transaction
                 await processCodeContent(
-                  client,
                   componentId,
                   relativePath,
                   cleanedCodeContent
@@ -577,7 +575,6 @@ function getChunkFileName(
 
 // Update the processCodeContent function
 async function processCodeContent(
-  client: PoolClient,
   componentId: string,
   relativePath: string,
   cleanedCodeContent: string
@@ -658,21 +655,4 @@ async function processCodeContent(
       );
     }
   }
-}
-
-// Example of batching multiple operations in a single connection
-async function batchOperation() {
-  await executeQuery(async (client) => {
-    // All these operations use the same client
-    await client.query("BEGIN");
-    try {
-      await client.query("INSERT INTO ...");
-      await client.query("UPDATE ...");
-      await client.query("DELETE FROM ...");
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    }
-  });
 }
