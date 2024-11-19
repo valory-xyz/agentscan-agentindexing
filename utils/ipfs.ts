@@ -56,7 +56,6 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
           format: "dag-json",
         },
         // Prevent axios from trying to parse the response
-        transformResponse: [(data) => data],
       });
 
       console.log(`Response: ${response.data}`);
