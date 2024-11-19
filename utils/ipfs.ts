@@ -14,7 +14,12 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500, // More specific status validat
 });
 
-const IPFS_GATEWAYS = ["https://gateway.autonolas.tech", "https://ipfs.io"];
+const IPFS_GATEWAYS = [
+  "https://gateway.autonolas.tech",
+  "https://ipfs.io",
+  "https://flk-ipfs.xyz",
+  "https://dweb.link",
+];
 
 let currentGatewayIndex = 0;
 
@@ -62,7 +67,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         console.log(
           `Gateway ${gateway} failed, attempt ${attempt}/${maxRetries}`
         );
-        const delay = Math.min(1000 * Math.pow(1.5, attempt - 1), 4000);
+        const delay = Math.min(1000 * Math.pow(1.5, attempt - 1), 5000);
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
