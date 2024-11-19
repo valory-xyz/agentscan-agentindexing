@@ -511,14 +511,6 @@ async function safeDownload(
     }
   } catch (error) {
     console.error(`Safe download failed for ${ipfsHash}:`, error);
-  } finally {
-    // Cleanup with error handling
-    try {
-      await fs.rm("./downloads", { recursive: true, force: true });
-      console.log("Cleaned up downloads directory");
-    } catch (cleanupError) {
-      console.warn("Cleanup warning:", cleanupError);
-    }
   }
 }
 
@@ -528,7 +520,7 @@ export async function recursiveDownload(
   retryAttempts = 3,
   componentId: string
 ): Promise<void> {
-  await safeDownload(ipfsHash, componentId);
+  return await safeDownload(ipfsHash, componentId);
 }
 
 // // Simplified retry function
