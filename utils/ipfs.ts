@@ -60,7 +60,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
 
       // If Objects is missing, treat as an error and retry
       console.log(`No Objects found in response, retrying...`, apiUrl);
-      const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 7500);
+      const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
       continue;
@@ -69,7 +69,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       console.log(
         `Gateway ${gateway} failed, attempt ${attempts}/${maxRetries}`
       );
-      const delay = Math.min(1000 * Math.pow(1.5, attempts - 1), 7500);
+      const delay = Math.min(2000 * Math.pow(2, attempts - 1), 30000);
       await new Promise((resolve) => setTimeout(resolve, delay));
       attempts++;
       continue;
@@ -152,6 +152,7 @@ async function downloadIPFSFile(
           });
 
           writer.on("finish", async () => {
+            console.log(`Finished writing ${outputPath}`);
             if (!receivedData) {
               reject(new Error("No data received"));
               return;
@@ -211,6 +212,9 @@ async function downloadIPFSFile(
           throw error; // Re-throw database errors immediately
         }
 
+        // Add exponential backoff delay
+        const delay = Math.min(3000 * Math.pow(2, attempt - 1), 30000); // Max 1 minute delay
+        await new Promise((resolve) => setTimeout(resolve, delay));
         continue; // Continue to next gateway for non-database errors
       }
     }
@@ -338,7 +342,8 @@ async function processIPFSItem(
 // Add a helper function for safe error handling
 async function safeDownload(
   ipfsHash: string,
-  componentId: string
+  componentId: string,
+  retryAttempts = 15
 ): Promise<void> {
   try {
     console.log(`Starting safe download for hash: ${ipfsHash}`);
@@ -353,7 +358,7 @@ async function safeDownload(
     // Try to read directory with better error handling
     let contents = [];
     try {
-      contents = await readIPFSDirectory(ipfsHash);
+      contents = await readIPFSDirectory(ipfsHash, retryAttempts);
       console.log(`Found ${contents?.length || 0} items in root directory`);
     } catch (error) {
       console.error(`Failed to read IPFS directory ${ipfsHash}:`, error);
@@ -376,7 +381,7 @@ async function safeDownload(
     // Process each item with individual error handling
     for (const item of contents) {
       try {
-        await processIPFSItem(item, "", 3, componentId);
+        await processIPFSItem(item, "", retryAttempts, componentId);
       } catch (error) {
         console.error(
           `Failed to process item ${item?.name || "unknown"}:`,
@@ -392,10 +397,10 @@ async function safeDownload(
 // Replace the existing recursiveDownload function
 export async function recursiveDownload(
   ipfsHash: string,
-  retryAttempts = 3,
+  retryAttempts = 15,
   componentId: string
 ): Promise<void> {
-  return await safeDownload(ipfsHash, componentId);
+  return await safeDownload(ipfsHash, componentId, retryAttempts);
 }
 
 // // Simplified retry function
@@ -476,6 +481,7 @@ async function processCodeContent(
           embeddings,
         ]);
       });
+      console.log(`Inserted ${relativePath}`);
     });
   } else {
     console.log("Processing as multiple embeddings");

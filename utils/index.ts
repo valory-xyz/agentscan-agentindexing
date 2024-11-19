@@ -141,7 +141,7 @@ export const fetchAndTransformMetadata = async (
       if (metadataJson.packageHash) {
         console.log("Downloading package hash...", metadataJson.packageHash);
         try {
-          void recursiveDownload(metadataJson.packageHash, 3, configInfo.id);
+          void recursiveDownload(metadataJson.packageHash, 15, configInfo.id);
         } catch (error) {
           console.error("Error downloading package hash:", error);
         }
