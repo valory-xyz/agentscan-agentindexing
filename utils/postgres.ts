@@ -18,8 +18,8 @@ const createPool = (() => {
         ssl: {
           rejectUnauthorized: false,
         },
-        max: 75, // Limit maximum connections
-        idleTimeoutMillis: 180000, // Close idle connections after 180 seconds
+        max: 100, // Limit maximum connections
+        idleTimeoutMillis: 240000, // Close idle connections after 240 seconds
       });
 
       // Handle pool errors
