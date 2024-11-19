@@ -232,9 +232,10 @@ async function downloadIPFSFile(
   );
 
   try {
+    await client.query("BEGIN");
     console.log(`Starting download for ${fileName}...`);
 
-    // Simplified status tracking
+    // Update status to processing
     await client.query(
       `
       INSERT INTO code_processing_status (component_id, file_path, status)
@@ -247,24 +248,22 @@ async function downloadIPFSFile(
       [componentId, relativePath, ProcessingStatus.PROCESSING]
     );
 
-    console.log("Original hash:", ipfsHash);
-    console.log("Starting download process for:", fileName);
+    // Check if file already exists in database
+    const checkResult = await client.query(
+      `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
+      [componentId, relativePath]
+    );
 
-    const decodedHash = decodeURIComponent(ipfsHash);
-    console.log("Decoded hash:", decodedHash);
-
-    const encodedHash = encodeURIComponent(decodedHash)
-      .replace(/%2F/g, "/")
-      .replace(/%20/g, "+")
-      .replace(/…/g, "");
-    console.log("Encoded hash:", encodedHash);
+    if (checkResult.rows.length > 0) {
+      console.log(`File ${fileName} already exists in the database`);
+      await client.query("COMMIT");
+      return path.join(outputDir, fileName);
+    }
 
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       const gateway = getNextGateway();
-      const fileUrl = `${gateway}/ipfs/${encodedHash}`;
-      console.log(`Gateway: ${gateway}`);
-      console.log(`Attempting download from ${fileUrl}`);
+      const fileUrl = `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`;
 
       try {
         const response = await axiosInstance({
@@ -276,43 +275,92 @@ async function downloadIPFSFile(
         await fs.mkdir(outputDir, { recursive: true });
         const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
         const outputPath = path.join(outputDir, sanitizedFileName);
-        //check if the file already is in the database
-        await client.query("BEGIN");
-        const checkQuery = `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`;
-        const result = await client.query(checkQuery, [
-          componentId,
-          outputPath,
-        ]);
-        console.log("Check query result:", result.rows);
-        if (result.rows.length > 0) {
-          console.log(`File ${fileName} already exists in the database`);
-          await client.query("COMMIT");
-          client.release();
-          return outputPath;
-        }
-        const relativePath = path.relative("./downloads", outputPath);
 
-        return await downloadWithRetry(
-          attempt,
-          fileName,
-          outputPath,
-          client,
-          componentId,
-          relativePath,
-          response,
-          maxRetries
-        );
+        // Process the download
+        const result = await new Promise((resolve, reject) => {
+          const writer = fsSync.createWriteStream(outputPath);
+          let receivedData = false;
+          let dataSize = 0;
+
+          response.data.on("data", (chunk: any) => {
+            dataSize += chunk.length;
+            receivedData = true;
+          });
+
+          writer.on("finish", async () => {
+            if (!receivedData) {
+              reject(new Error("No data received"));
+              return;
+            }
+
+            try {
+              const codeContent = await fs.readFile(outputPath, "utf-8");
+              if (!codeContent) {
+                throw new Error("Invalid code content");
+              }
+
+              const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
+
+              if (cleanedCodeContent.includes("Blocked content")) {
+                reject(new Error("Blocked content detected"));
+                return;
+              }
+
+              // Process the code content within the same transaction
+              await processCodeContent(
+                client,
+                componentId,
+                relativePath,
+                cleanedCodeContent
+              );
+
+              // Update status to completed
+              await client.query(
+                `
+                UPDATE code_processing_status 
+                SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE component_id = $2 AND file_path = $3
+              `,
+                [ProcessingStatus.COMPLETED, componentId, relativePath]
+              );
+
+              resolve(outputPath);
+            } catch (error) {
+              reject(error);
+            }
+          });
+
+          writer.on("error", reject);
+          response.data.pipe(writer);
+        });
+
+        // If we get here, everything succeeded
+        await client.query("COMMIT");
+        return result as string;
       } catch (error: any) {
         lastError = error;
         console.log(`Gateway ${gateway} failed, trying next one...`);
-        continue;
+
+        // Only rollback if there's a database-related error
+        if (
+          error.message.includes("database") ||
+          error.message.includes("sql")
+        ) {
+          await client.query("ROLLBACK");
+          throw error; // Re-throw database errors immediately
+        }
+
+        continue; // Continue to next gateway for non-database errors
       }
     }
 
+    // If we get here, all gateways failed
+    await client.query("ROLLBACK");
     throw lastError || new Error("All gateways failed");
   } catch (error: any) {
     console.error(`Download failed for ${fileName}:`, error.message);
-    if (client) {
+
+    try {
       await client.query(
         `
         UPDATE code_processing_status 
@@ -322,14 +370,13 @@ async function downloadIPFSFile(
         [ProcessingStatus.FAILED, error.message, componentId, relativePath]
       );
       await client.query("ROLLBACK");
-      client.release();
+    } catch (rollbackError) {
+      console.error("Error during rollback:", rollbackError);
     }
+
     throw error;
   } finally {
-    console.log(`Cleanup for ${fileName}`);
-    if (client) {
-      client.release();
-    }
+    client.release();
   }
 }
 
