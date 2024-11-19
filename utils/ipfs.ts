@@ -54,25 +54,17 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         },
       });
 
-      if (typeof response.data === "string") {
-        if (
+      if (
+        typeof response.data === "string" &&
+        (response.data.includes("Blocked content") ||
           response.data.includes("ipfs cat") ||
-          response.data.includes("Error:")
-        ) {
-          console.log(`Error message detected in response: ${response.data}`);
-          throw new Error("Invalid response format from gateway");
-        }
-
-        if (
+          response.data.includes("Error:") ||
           response.data.includes("<!DOCTYPE html>") ||
           response.data.includes("<html>") ||
-          response.data.toLowerCase().includes("<!doctype html>")
-        ) {
-          console.log(
-            `HTML content detected in directory response, retrying...`
-          );
-          throw new Error("HTML content received instead of directory data");
-        }
+          response.data.toLowerCase().includes("<!doctype html>"))
+      ) {
+        console.log(`Invalid content detected in response: ${response.data}`);
+        throw new Error("Invalid response format from gateway");
       }
 
       let parsedData;
@@ -226,25 +218,17 @@ async function downloadIPFSFile(
 
         const codeContent = response.data;
 
-        if (typeof response.data === "string") {
-          if (
+        if (
+          typeof response.data === "string" &&
+          (response.data.includes("Blocked content") ||
             response.data.includes("ipfs cat") ||
-            response.data.includes("Error:")
-          ) {
-            console.log(`Error message detected in response: ${response.data}`);
-            throw new Error("Invalid response format from gateway");
-          }
-
-          if (
+            response.data.includes("Error:") ||
             response.data.includes("<!DOCTYPE html>") ||
             response.data.includes("<html>") ||
-            response.data.toLowerCase().includes("<!doctype html>")
-          ) {
-            console.log(
-              `HTML content detected in directory response, retrying...`
-            );
-            throw new Error("HTML content received instead of directory data");
-          }
+            response.data.toLowerCase().includes("<!doctype html>"))
+        ) {
+          console.log(`Invalid content detected in response: ${response.data}`);
+          throw new Error("Invalid response format from gateway");
         }
 
         console.log(`Cat response: ${codeContent}`);
