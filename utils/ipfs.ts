@@ -77,6 +77,21 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       }
       console.log(`Parsed data:`, parsedData);
 
+      // Check for valid DAG-JSON directory structure
+      if (parsedData?.Objects?.[0]?.Links) {
+        console.log("parsedData", parsedData?.Objects?.[0]?.Links);
+        console.log(
+          `Found ${parsedData.Objects[0].Links.length} items in directory response`
+        );
+        return parsedData.Objects[0].Links.map((item: any) => ({
+          name: item.Name,
+          hash: item.Hash["/"], // Handle DAG-JSON CID format
+          size: item.Size,
+          type: item.Type,
+          isDirectory: item.Type === 1 || item.Type === "dir",
+        }));
+      }
+
       // Add new check for alternative directory structure
       if (parsedData?.Links) {
         console.log("parsedData", parsedData.Links);
