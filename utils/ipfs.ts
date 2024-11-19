@@ -337,19 +337,15 @@ async function downloadIPFSFile(
           response.data.pipe(writer);
         });
 
-        // If we get here, everything succeeded
-        await client.query("COMMIT");
         return result as string;
       } catch (error: any) {
         lastError = error;
         console.log(`Gateway ${gateway} failed, trying next one...`);
 
-        // Only rollback if there's a database-related error
         if (
           error.message.includes("database") ||
           error.message.includes("sql")
         ) {
-          await client.query("ROLLBACK");
           throw error; // Re-throw database errors immediately
         }
 
@@ -357,11 +353,8 @@ async function downloadIPFSFile(
       }
     }
 
-    // If we get here, all gateways failed
-    await client.query("ROLLBACK");
     throw lastError || new Error("All gateways failed");
   } catch (error) {
-    await client.query("ROLLBACK");
     throw error;
   }
 }
