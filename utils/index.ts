@@ -79,7 +79,7 @@ export const fetchAndEmbedMetadata = async (
   if (metadata?.packageHash) {
     console.log("Downloading package hash...", metadata.packageHash);
     try {
-      await recursiveDownload(metadata.packageHash, 3, componentId);
+      void recursiveDownload(metadata.packageHash, 3, componentId);
     } catch (error) {
       console.error("Error downloading package hash:", error);
     }
