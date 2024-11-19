@@ -243,7 +243,6 @@ async function downloadIPFSFile(
                     /[\r\n]/g,
                     " "
                   );
-                  console.log("Cleaned code content:", cleanedCodeContent);
 
                   // Add check for blocked content
                   if (cleanedCodeContent.includes("Blocked content")) {
