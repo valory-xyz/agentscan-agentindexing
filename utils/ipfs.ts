@@ -148,29 +148,26 @@ async function downloadIPFSFile(
       writer.on("finish", async () => {
         if (receivedData) {
           try {
-            // Read the file content
             const codeContent = await fs.readFile(outputPath, "utf-8");
 
-            // Generate embedding using retry function
             if (!codeContent) {
               console.error("No code content received");
-              //continue
-              resolve(outputPath);
+              await fs.unlink(outputPath).catch(console.error);
+              return resolve(outputPath);
             }
+
             const embedding = await generateEmbeddingWithRetry(codeContent);
 
             if (!embedding) {
               console.error("No embedding received");
-              //continue
-              resolve(outputPath);
+              await fs.unlink(outputPath).catch(console.error);
+              return resolve(outputPath);
             }
 
-            // Start a transaction
             const client = await pool.connect();
             try {
               await client.query("BEGIN");
 
-              // Store in PostgreSQL with pgvector
               const insertQuery = `
                 INSERT INTO code_embeddings (
                   component_id,
@@ -191,7 +188,6 @@ async function downloadIPFSFile(
                 codeContent,
               ]);
 
-              // Reindex the table
               const reindexQuery = `
                 REINDEX INDEX code_embeddings_embedding_idx;
               `;
@@ -202,41 +198,33 @@ async function downloadIPFSFile(
               console.log(
                 `Processed, stored, and reindexed embedding for ${fileName}`
               );
-              resolve(outputPath);
+              await fs.unlink(outputPath);
+              console.log(`Deleted file: ${outputPath}`);
+              return resolve(outputPath);
             } catch (error) {
               await client.query("ROLLBACK");
               console.error("Error processing embedding:", error);
-              //continue
-              resolve(outputPath);
+              await fs.unlink(outputPath).catch(console.error);
+              return resolve(outputPath);
             } finally {
-              console.log("Releasing client");
               client.release();
             }
-
-            // Delete the file after successful processing
-            await fs.unlink(outputPath);
-            console.log(`Deleted file: ${outputPath}`);
-
-            resolve(outputPath);
           } catch (error) {
             console.error("Error processing embedding:", error);
-            // Delete the file even if processing failed
-            await fs
-              .unlink(outputPath)
-              .catch((err) =>
-                console.error(`Error deleting file ${outputPath}:`, err)
-              );
-            resolve(outputPath);
+            await fs.unlink(outputPath).catch(console.error);
+            return resolve(outputPath);
           }
         } else {
-          fsSync.unlink(outputPath, () => {});
-          resolve(outputPath);
+          fsSync.unlink(outputPath, () => {
+            resolve(outputPath);
+          });
         }
       });
 
       writer.on("error", (err) => {
-        fsSync.unlink(outputPath, () => {});
-        resolve(outputPath);
+        fsSync.unlink(outputPath, () => {
+          resolve(outputPath);
+        });
       });
 
       response.data.pipe(writer);
