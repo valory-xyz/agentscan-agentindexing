@@ -533,7 +533,7 @@ async function processCodeContent(
   console.log(`Generated ${embeddings.length} embeddings for ${relativePath}`);
 
   // Handle single or multiple embeddings
-  if (!Array.isArray(embeddings[0])) {
+  if (!Array.isArray(embeddings) || !Array.isArray(embeddings[0])) {
     // Single embedding case - store as normal
     const mainInsertQuery = `
       INSERT INTO code_embeddings (
