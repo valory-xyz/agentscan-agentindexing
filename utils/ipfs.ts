@@ -230,7 +230,8 @@ async function downloadIPFSFile(
                     ON CONFLICT (component_id, file_path) 
                     DO UPDATE SET
                       embedding = EXCLUDED.embedding,
-                      code_content = EXCLUDED.code_content;
+                      code_content = EXCLUDED.code_content
+                    RETURNING *;
                   `;
 
                   const result = await client.query(insertQuery, [
@@ -239,6 +240,7 @@ async function downloadIPFSFile(
                     embedding,
                     codeContent,
                   ]);
+                  console.log("Insert result:", result.rows);
 
                   await client.query("COMMIT");
 
