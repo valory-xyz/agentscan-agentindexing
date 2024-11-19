@@ -232,7 +232,7 @@ async function downloadIPFSFile(
 ): Promise<string | null> {
   return await executeQuery(async (client) => {
     const fullPath = path.join(outputDir, fileName);
-    const relativePath = fileName;
+    const relativePath = fullPath.replace(/^\.?\/downloads\//, "");
 
     console.log(`Starting download for ${relativePath}...`);
 
