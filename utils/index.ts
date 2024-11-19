@@ -1,7 +1,8 @@
 import axios from "axios";
-import { generateEmbeddingWithRetry, recursiveDownload } from "./ipfs";
+import { recursiveDownload } from "./ipfs";
 import pool from "./postgres";
 import { memoize } from "lodash";
+import { generateEmbeddingWithRetry } from "./openai";
 
 // Helper function to get chain name from contract name
 export const getChainName = (contractName: string) => {
