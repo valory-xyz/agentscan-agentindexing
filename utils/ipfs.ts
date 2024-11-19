@@ -9,8 +9,8 @@ import { PoolClient } from "pg";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
-  timeout: 10000,
-  maxRedirects: 5,
+  timeout: 5000,
+  maxRedirects: 3,
   validateStatus: (status) => status < 400,
 });
 
@@ -111,13 +111,28 @@ async function downloadIPFSFile(
   let client: PoolClient | undefined;
   try {
     console.log("Original hash:", ipfsHash);
+    console.log("Starting download process for:", fileName);
+
     const decodedHash = decodeURIComponent(ipfsHash);
+    console.log("Decoded hash:", decodedHash);
+
     const encodedHash = encodeURIComponent(decodedHash)
       .replace(/%2F/g, "/")
       .replace(/%20/g, "+")
       .replace(/…/g, "");
+    console.log("Encoded hash:", encodedHash);
 
     const fileUrl = `https://gateway.autonolas.tech/ipfs/${encodedHash}`;
+    console.log("Attempting to download from:", fileUrl);
+
+    // Add timeout to axios request
+    const response = await axiosInstance({
+      method: "get",
+      url: fileUrl,
+      responseType: "stream",
+      timeout: 5000, // 5 second timeout
+    });
+
     await fs.mkdir(outputDir, { recursive: true });
 
     const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
@@ -134,12 +149,6 @@ async function downloadIPFSFile(
       return outputPath;
     }
     const relativePath = path.relative("./downloads", outputPath);
-
-    const response = await axiosInstance({
-      method: "get",
-      url: fileUrl,
-      responseType: "stream",
-    });
 
     return new Promise((resolve, reject) => {
       const writer = fsSync.createWriteStream(outputPath);
@@ -221,12 +230,16 @@ async function downloadIPFSFile(
       response.data.pipe(writer);
     });
   } catch (error: any) {
-    console.log(`Error downloading file ${fileName}:`, error.message);
+    console.error(`Detailed error in downloadIPFSFile for ${fileName}:`, {
+      message: error.message,
+      code: error.code,
+      response: error.response?.status,
+    });
     if (client) {
       await client.query("ROLLBACK").catch(console.error);
       client.release();
     }
-    return null;
+    throw error;
   }
 }
 
