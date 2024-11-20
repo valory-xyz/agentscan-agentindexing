@@ -55,167 +55,6 @@ function calculateRetryDelay(attempt: number): number {
   return Math.min(delay, RETRY_DELAYS.MAX_DELAY);
 }
 
-async function downloadIPFSFile(
-  ipfsHash: string,
-  fileName: string,
-  outputDir: string = "./downloads",
-  componentId: string,
-  maxRetries: number = 15
-): Promise<string | null> {
-  const fullPath = path.join(outputDir, fileName);
-  const relativePath = path.relative("downloads", fullPath);
-
-  console.log(`Starting download for ${relativePath}...`);
-
-  try {
-    // Check if already processed
-    const checkResult = await executeQuery(async (client) => {
-      return await client.query(
-        `SELECT * FROM code_embeddings WHERE component_id = $1 AND file_path = $2 LIMIT 1`,
-        [componentId, relativePath]
-      );
-    });
-    console.log(`Check result: ${checkResult.rows}`);
-
-    if (checkResult.rows.length > 0) {
-      console.log(`File ${relativePath} already exists in the database`);
-      return fullPath;
-    }
-
-    // Set initial processing status
-    await executeQuery(async (client) => {
-      await client.query(
-        `
-          INSERT INTO code_processing_status (component_id, file_path, status)
-          VALUES ($1, $2, $3)
-          ON CONFLICT (component_id, file_path) 
-          DO UPDATE SET 
-            status = $3,
-            updated_at = CURRENT_TIMESTAMP
-        `,
-        [componentId, relativePath, ProcessingStatus.PROCESSING]
-      );
-    });
-    console.log(`Set processing status for ${relativePath}`);
-
-    let lastError;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const gateway = getNextGateway();
-      if (!gateway) throw new Error("No available gateways");
-
-      try {
-        // Request raw content with proper content negotiation
-        const response = await axiosInstance({
-          method: "get",
-          url: `${gateway}/ipfs/${encodeURIComponent(ipfsHash)}`,
-          params: {
-            format: "raw", // Explicitly request raw format in URL
-          },
-          headers: {
-            Accept: "application/vnd.ipld.raw", // Request raw format in header
-            "Cache-Control": "only-if-cached",
-            "If-None-Match": "*",
-          },
-        });
-
-        if (!response.data) {
-          throw new Error("No data received");
-        }
-
-        const codeContent = response.data;
-
-        if (
-          typeof response.data === "string" &&
-          (response.data.includes("Blocked content") ||
-            response.data.includes("ipfs cat") ||
-            response.data.includes("Error:") ||
-            response.data.includes("<!DOCTYPE html>") ||
-            response.data.includes("<html>") ||
-            response.data.toLowerCase().includes("<!doctype html>"))
-        ) {
-          throw new Error("Invalid response format from gateway");
-        }
-
-        console.log(`Cat response: ${codeContent}`);
-        const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
-
-        if (cleanedCodeContent.includes("Blocked content")) {
-          console.log(`Blocked content detected`);
-          throw new Error("Blocked content detected");
-        }
-
-        // Ensure directory exists
-        await fs.mkdir(outputDir, { recursive: true });
-
-        // Write file to disk
-        const sanitizedFileName = fileName.replace(/[<>:"/\\|?*]/g, "_");
-        const outputPath = path.join(outputDir, sanitizedFileName);
-        await fs.writeFile(outputPath, codeContent);
-        console.log(`Wrote file to ${outputPath}`);
-        // Process the content
-        await processCodeContent(componentId, relativePath, cleanedCodeContent);
-        console.log(`Processed code content for ${relativePath}`);
-        // Update status to completed
-        await executeQuery(async (client) => {
-          await client.query(
-            `
-            UPDATE code_processing_status 
-            SET status = $1, error_message = NULL, updated_at = CURRENT_TIMESTAMP
-            WHERE component_id = $2 AND file_path = $3
-          `,
-            [ProcessingStatus.COMPLETED, componentId, relativePath]
-          );
-        });
-        console.log(`Updated status to completed for ${relativePath}`);
-        return outputPath;
-      } catch (error: any) {
-        lastError = error;
-        console.log(
-          `Gateway ${gateway} failed (attempt ${attempt}/${maxRetries}):`,
-          error.message
-        );
-
-        if (
-          error.message.includes("database") ||
-          error.message.includes("sql")
-        ) {
-          throw error; // Re-throw database errors immediately
-        }
-
-        // Exponential backoff
-        const delay = calculateRetryDelay(attempt);
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-    }
-
-    throw lastError || new Error("All gateways failed");
-  } catch (error: any) {
-    const errorMessage = error?.message || "Unknown error";
-    console.error(`Download failed for ${relativePath}: ${errorMessage}`);
-
-    // Update status with more detailed error information
-    await executeQuery(async (client) => {
-      await client.query(
-        `
-        UPDATE code_processing_status 
-        SET status = $1, 
-            error_message = $2, 
-            retry_count = COALESCE(retry_count, 0) + 1,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE component_id = $3 AND file_path = $4
-        `,
-        [
-          ProcessingStatus.FAILED,
-          `${errorMessage} (Gateway: ${getNextGateway()})`,
-          componentId,
-          relativePath,
-        ]
-      );
-    });
-    throw error;
-  }
-}
-
 async function determineCategory(contents: any[]): Promise<string | null> {
   const yamlFiles = contents.map((item) => item.name);
 
@@ -354,6 +193,7 @@ async function processCodeContent(
 ): Promise<void> {
   try {
     const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
+    console.log("Embeddings:", embeddings);
 
     if (!Array.isArray(embeddings) || embeddings.length === 1) {
       await safeQueueOperation(async () => {
@@ -634,7 +474,7 @@ async function traverseDAG(
                 maxRetries
               );
               item.contents = subDirResult.contents;
-              visited = subDirResult.visited; // Merge visited nodes
+              visited = subDirResult.visited;
             } catch (error) {
               console.error(`Failed to read subdirectory ${newPath}:`, error);
             }
@@ -643,6 +483,8 @@ async function traverseDAG(
             item.name.endsWith(".proto") ||
             item.name.toLowerCase() === "readme.md"
           ) {
+            console.log("Processing file", item.hash, "at", newPath);
+            console.log("url:", `${gateway}/ipfs/${item.hash}`);
             // Process file content and generate embeddings
             try {
               await dbQueue.add(async () => {
