@@ -396,12 +396,18 @@ function isIPFSDirectory(rawItem: any): boolean {
     return false;
   }
 
+  // Check file extensions that we know are not directories
+  const nonDirectoryExtensions = [".py", ".yaml", ".md", ".proto"];
+  if (nonDirectoryExtensions.some((ext) => item.Name.endsWith(ext))) {
+    return false;
+  }
+
   // Check for Tsize property (common in directory entries)
   if (item.Tsize !== undefined) {
     return true;
   }
 
-  // Now we can safely check other properties
+  // Check for explicit directory markers
   if (item.Name.endsWith("/")) {
     return true;
   }
@@ -411,9 +417,8 @@ function isIPFSDirectory(rawItem: any): boolean {
     return true;
   }
 
-  // Check for Qm prefix with small size
-  const hashValue = Object.values(item.Hash)[0];
-  if (hashValue?.startsWith("Qm") && (item.Size || 0) < 100) {
+  // Check for explicit directory type if available
+  if (item.Type === 1 || item.Type === "directory") {
     return true;
   }
 
@@ -476,13 +481,26 @@ async function traverseDAG(
 
       let parsedData;
       try {
+        // Check if the response is markdown or plain text content
+        if (
+          typeof response.data === "string" &&
+          (response.data.startsWith("#") ||
+            response.data.startsWith("```") ||
+            response.data.includes("<!DOCTYPE html>") ||
+            response.data.includes("<html>"))
+        ) {
+          // Handle as raw content instead of trying to parse as JSON
+          return { visited, contents: [], currentPath };
+        }
+
         parsedData =
           typeof response.data === "string"
             ? JSON.parse(response.data)
             : response.data;
       } catch (e: any) {
-        console.log("Failed to parse DAG response:", e);
-        throw new Error(`Invalid DAG response format: ${e.message}`);
+        // If parsing fails, treat it as raw content
+        console.log("Failed to parse DAG response, treating as raw content");
+        return { visited, contents: [], currentPath };
       }
 
       // Mark as visited with timestamp
