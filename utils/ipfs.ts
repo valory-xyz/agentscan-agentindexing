@@ -12,7 +12,7 @@ import pQueue from "p-queue";
 
 // Configure axios defaults
 const axiosInstance = axios.create({
-  timeout: 20000,
+  timeout: 30000,
   maxRedirects: 15,
   validateStatus: (status) => status >= 200 && status < 500,
 });
