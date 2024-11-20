@@ -467,6 +467,34 @@ interface VisitedNodes {
   [cid: string]: VisitedNode;
 }
 
+function isIPFSDirectory(item: any): boolean {
+  // Debug logging
+  console.log(`Checking directory type for ${item.name}:`, {
+    size: item.size,
+    hash: item.hash,
+  });
+
+  // If size is very small (like 0-2 bytes) or relatively large and ends with '/'
+  // it's likely a directory
+  if (item.name.endsWith("/")) {
+    return true;
+  }
+
+  // Some IPFS directories have very specific sizes
+  // You might need to adjust these values based on your observations
+  if (item.size === 0 || item.size === 2 || item.size === 4) {
+    return true;
+  }
+
+  // If the hash starts with 'Qm' and the size is suspiciously small,
+  // it's probably a directory
+  if (item.hash.startsWith("Qm") && item.size < 100) {
+    return true;
+  }
+
+  return false;
+}
+
 async function traverseDAG(
   cid: string,
   componentId: string,
@@ -547,8 +575,7 @@ async function traverseDAG(
           name: item.Name,
           hash: item.Hash["/"],
           size: item.Size || item.Tsize,
-          type: item.Type,
-          isDirectory: item.Type === 1 || item.Type === "dir",
+          isDirectory: isIPFSDirectory(item),
         }));
         console.log("Contents for", cleanCid, ":", contents);
 
