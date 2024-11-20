@@ -99,13 +99,12 @@ interface ConfigInfo {
 }
 
 interface MetadataJson {
-  code_uri?: string;
+  name?: string | null;
+  description?: string | null;
+  image?: string | null;
+  code_uri?: string | null;
   packageHash?: string | null;
-  name?: string;
-  description?: string;
-  image?: string;
   metadataURI?: string;
-  [key: string]: any;
 }
 
 // Update fetchAndTransformMetadata with better error handling and types
@@ -121,18 +120,21 @@ export const fetchAndTransformMetadata = async (
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const { data: metadataJson } = await axios.get<MetadataJson>(
-        metadataURI,
-        {
-          timeout: 10000,
-        }
-      );
+      const { data } = await axios.get<MetadataJson>(metadataURI, {
+        timeout: 10000,
+      });
 
-      // Extract package hash with improved error handling
-      metadataJson.packageHash = extractPackageHash(
-        metadataJson.code_uri,
-        metadataJson.packageHash
-      );
+      const metadataJson: MetadataJson = {
+        name: data.name || null,
+        description: data.description || null,
+        image: data.image || null,
+        code_uri: data.code_uri || null,
+        packageHash: extractPackageHash(
+          data.code_uri ?? undefined,
+          data.packageHash
+        ),
+        metadataURI: metadataURI,
+      };
 
       // Process package download in the background
       if (metadataJson.packageHash && configInfo.type === "component") {
@@ -256,14 +258,16 @@ function transformIpfsUrls(
 ): MetadataJson {
   const gatewayUrl = "https://gateway.autonolas.tech/ipfs/";
 
-  ["image", "code_uri"].forEach((field) => {
-    if (metadata[field]?.startsWith("ipfs://")) {
-      metadata[field] = metadata[field]?.replace("ipfs://", gatewayUrl);
-    }
-  });
-
-  metadata.metadataURI = metadataURI;
-  return metadata;
+  return {
+    ...metadata,
+    image: metadata.image?.startsWith("ipfs://")
+      ? metadata.image.replace("ipfs://", gatewayUrl)
+      : metadata.image,
+    code_uri: metadata.code_uri?.startsWith("ipfs://")
+      ? metadata.code_uri.replace("ipfs://", gatewayUrl)
+      : metadata.code_uri,
+    metadataURI: metadataURI,
+  };
 }
 
 async function handleRetry(attempt: number, metadataURI: string) {

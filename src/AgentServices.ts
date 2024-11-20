@@ -68,26 +68,26 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
       return;
     }
 
+    const updateData = {
+      name: metadataJson.name || null,
+      description: metadataJson.description || null,
+      image: metadataJson.image || null,
+      codeUri: metadataJson.code_uri || null,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
+      packageHash: metadataJson.packageHash,
+      metadataHash: event.args.unitHash,
+      metadataURI: metadataJson.metadataURI,
+    };
+
     if (existingAgent) {
-      await context.db.update(Agent, { id: agentId }).set({
-        metadata: metadataJson,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        packageHash: metadataJson?.packageHash,
-        metadataHash: event.args.unitHash,
-        metadataURI: metadataJson?.metadataURI,
-      });
+      await context.db.update(Agent, { id: agentId }).set(updateData);
     } else {
       await context.db.insert(Agent).values({
         id: agentId,
         operator: null,
         instance: "0x",
-        metadataHash: event.args.unitHash,
-        metadata: metadataJson,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        packageHash: metadataJson?.packageHash,
-        metadataURI: metadataJson?.metadataURI,
+        ...updateData,
       });
     }
 
@@ -170,7 +170,10 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
   try {
     if (existingComponent) {
       await context.db.update(Component, { id: componentId }).set({
-        metadata: metadataJson,
+        name: metadataJson?.name || null,
+        description: metadataJson?.description || null,
+        image: metadataJson?.image || null,
+        codeUri: metadataJson?.code_uri || null,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
         packageHash: metadataJson?.packageHash,
@@ -181,11 +184,14 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
       await context.db.insert(Component).values({
         id: componentId,
         instance: "0x",
-        metadataHash: event.args.unitHash,
-        metadata: metadataJson,
+        name: metadataJson?.name || null,
+        description: metadataJson?.description || null,
+        image: metadataJson?.image || null,
+        codeUri: metadataJson?.code_uri || null,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
         packageHash: metadataJson?.packageHash,
+        metadataHash: event.args.unitHash,
         metadataURI: metadataJson?.metadataURI,
       });
     }
@@ -276,11 +282,14 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
 
   try {
     await context.db.update(Agent, { id: agentId }).set({
-      metadata: metadataJson,
-      metadataHash: event.args.unitHash,
-      packageHash: metadataJson?.packageHash,
+      name: metadataJson?.name || null,
+      description: metadataJson?.description || null,
+      image: metadataJson?.image || null,
+      codeUri: metadataJson?.code_uri || null,
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
+      packageHash: metadataJson?.packageHash,
+      metadataHash: event.args.unitHash,
       metadataURI: metadataJson?.metadataURI,
     });
   } catch (e) {
@@ -301,11 +310,14 @@ ponder.on(
 
     try {
       await context.db.update(Component, { id: componentId }).set({
-        metadata: metadataJson,
-        metadataHash: event.args.unitHash,
-        packageHash: metadataJson?.packageHash,
+        name: metadataJson?.name || null,
+        description: metadataJson?.description || null,
+        image: metadataJson?.image || null,
+        codeUri: metadataJson?.code_uri || null,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
+        packageHash: metadataJson?.packageHash,
+        metadataHash: event.args.unitHash,
         metadataURI: metadataJson?.metadataURI,
       });
     } catch (e) {
@@ -342,19 +354,25 @@ CONTRACT_NAMES.forEach((contractName) => {
         state: "UNREGISTERED",
         blockNumber: Number(event.block.number),
         chainId: getChainId(chain),
-        metadata: metadataJson,
-        timestamp: Number(event.block.timestamp),
-        metadataHash: event.args.configHash,
-        packageHash,
+        name: metadataJson?.name || null,
+        description: metadataJson?.description || null,
+        image: metadataJson?.image || null,
+        codeUri: metadataJson?.code_uri || null,
         metadataURI: metadataJson?.metadataURI,
+        packageHash,
+        metadataHash: event.args.configHash,
+        timestamp: Number(event.block.timestamp),
       });
     } catch (e) {
       //if the service already exists, update it
       await context.db.update(Service, { id: chainScopedId }).set({
-        metadata: metadataJson,
-        metadataHash: event.args.configHash,
-        packageHash,
+        name: metadataJson?.name || null,
+        description: metadataJson?.description || null,
+        image: metadataJson?.image || null,
+        codeUri: metadataJson?.code_uri || null,
         metadataURI: metadataJson?.metadataURI,
+        packageHash,
+        metadataHash: event.args.configHash,
       });
       // console.error("Error in CreateService handler:", e);
     }
@@ -463,14 +481,23 @@ CONTRACT_NAMES.forEach((contractName) => {
       serviceId,
       "service"
     );
+
+    if (!metadataJson) {
+      console.warn(`No metadata found for service ${serviceId}`);
+      return;
+    }
+
     const packageHash = metadataJson?.packageHash;
 
     try {
       await context.db.update(Service, { id: serviceId }).set({
-        metadata: metadataJson,
-        metadataHash: event.args.configHash,
+        name: metadataJson.name || null,
+        description: metadataJson.description || null,
+        image: metadataJson.image || null,
+        codeUri: metadataJson.code_uri || null,
+        metadataURI: metadataJson.metadataURI,
         packageHash,
-        metadataURI: metadataJson?.metadataURI,
+        metadataHash: event.args.configHash,
       });
     } catch (e) {
       // console.error("Error in UpdateService handler:", e);
