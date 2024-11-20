@@ -533,14 +533,6 @@ async function traverseDAG(
           const newPath = currentPath
             ? path.join(currentPath, item.name)
             : item.name;
-          //check if the file is in code_embeddings
-          const fileInCodeEmbeddings = await executeQuery(async (client) => {
-            const result = await client.query(
-              `SELECT 1 FROM code_embeddings WHERE file_path = $1 AND component_id = $2`,
-              [newPath, componentId]
-            );
-            return result.rows.length > 0;
-          });
 
           if (item.isDirectory) {
             // Skip tests directory
