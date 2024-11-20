@@ -219,36 +219,46 @@ function getChunkFileName(
 async function processCodeContent(
   componentId: string,
   relativePath: string,
-  cleanedCodeContent: string
+  cleanedCodeContent: string,
+  ipfsUrl: string
 ): Promise<boolean> {
   try {
     const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
+    const fileName = path.basename(relativePath);
 
     if (!Array.isArray(embeddings) || embeddings.length === 1) {
       const result = await safeQueueOperation(async () => {
-        return await dbQueue.add(
-          async () => {
-            await executeQuery(async (client) => {
-              await client.query(
-                `INSERT INTO code_embeddings (
-                component_id,
-                file_path,
-                code_content,
+        return await dbQueue.add(async () => {
+          await executeQuery(async (client) => {
+            await client.query(
+              `INSERT INTO context_embeddings (
+                id,
+                company_id,
+                type,
+                location,
+                content,
+                name,
                 embedding,
                 created_at,
                 updated_at
-              ) VALUES ($1, $2, $3, $4, NOW(), NOW())
-               ON CONFLICT (component_id, file_path) DO UPDATE SET
-                 code_content = EXCLUDED.code_content,
-                 embedding = EXCLUDED.embedding,
-                 updated_at = NOW()
-              RETURNING component_id, file_path`,
-                [componentId, relativePath, cleanedCodeContent, embeddings]
-              );
-            });
-          },
-          { timeout: 30000 }
-        );
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+              ON CONFLICT (id, type, location) DO UPDATE SET
+                content = EXCLUDED.content,
+                name = EXCLUDED.name,
+                embedding = EXCLUDED.embedding,
+                updated_at = NOW()`,
+              [
+                componentId,
+                "olas",
+                "component",
+                ipfsUrl,
+                cleanedCodeContent,
+                fileName,
+                embeddings,
+              ]
+            );
+          });
+        });
       });
       return result !== null;
     } else {
@@ -261,43 +271,44 @@ async function processCodeContent(
               i,
               embeddings.length
             );
-            return await dbQueue.add(
-              async () => {
-                await executeQuery(async (client) => {
-                  await client.query(
-                    `INSERT INTO code_embeddings (
-                    component_id,
-                    file_path,
-                    code_content,
+            return await dbQueue.add(async () => {
+              await executeQuery(async (client) => {
+                await client.query(
+                  `INSERT INTO context_embeddings (
+                    id,
+                    company_id,
+                    type,
+                    location,
+                    content,
+                    name,
                     embedding,
                     is_chunk,
-                    original_file_path,
+                    original_location,
                     created_at,
                     updated_at
-                  ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-                   ON CONFLICT (component_id, file_path) DO UPDATE SET
-                     code_content = EXCLUDED.code_content,
-                     embedding = EXCLUDED.embedding,
-                     updated_at = NOW()
-                  RETURNING component_id, file_path`,
-                    [
-                      componentId,
-                      chunkPath,
-                      chunk,
-                      embeddings[i],
-                      true,
-                      relativePath,
-                    ]
-                  );
-                });
-              },
-              { timeout: 30000 }
-            );
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+                  ON CONFLICT (id, type, location) DO UPDATE SET
+                    content = EXCLUDED.content,
+                    name = EXCLUDED.name,
+                    embedding = EXCLUDED.embedding,
+                    updated_at = NOW()`,
+                  [
+                    componentId,
+                    "olas",
+                    "component",
+                    ipfsUrl,
+                    chunk,
+                    fileName,
+                    embeddings[i],
+                    true,
+                    ipfsUrl,
+                  ]
+                );
+              });
+            });
           })
         )
       );
-
-      // Check if all chunks were processed successfully
       return results.every(
         (result) => result.status === "fulfilled" && result.value !== null
       );
@@ -683,12 +694,14 @@ async function traverseDAG(
                   `Content length for ${item.name}: ${cleanedCodeContent.length}`
                 );
 
+                const fileUrl = `${gateway}/ipfs/${item.hash}`;
                 await dbQueue.add(async () => {
                   try {
                     const result = await processCodeContent(
                       componentId,
                       newPath,
-                      cleanedCodeContent
+                      cleanedCodeContent,
+                      fileUrl
                     );
                     // Update status to completed
                     if (result) {
@@ -750,26 +763,57 @@ async function traverseDAG(
 // Add helper function for status updates
 async function updateProcessingStatus(
   componentId: string,
-  filePath: string,
+  location: string,
   status: ProcessingStatus,
   errorMessage?: string
 ): Promise<void> {
   await dbQueue.add(async () => {
     await executeQuery(async (client) => {
-      await client.query(
-        `INSERT INTO code_processing_status (
-          component_id,
-          file_path,
-          status,
-          error_message,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, NOW())
-        ON CONFLICT (component_id, file_path) DO UPDATE SET
-          status = EXCLUDED.status,
-          error_message = EXCLUDED.error_message,
-          updated_at = NOW()`,
-        [componentId, filePath, status, errorMessage || null]
-      );
+      if (status === ProcessingStatus.COMPLETED) {
+        const fileName = path.basename(location);
+        await client.query(
+          `INSERT INTO context_processing_status (
+            id,
+            company_id,
+            type,
+            location,
+            name,
+            status,
+            error_message,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+          ON CONFLICT (id, type, location) DO UPDATE SET
+            name = EXCLUDED.name,
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            updated_at = NOW()`,
+          [
+            componentId,
+            "olas",
+            "component",
+            location,
+            fileName,
+            status,
+            errorMessage || null,
+          ]
+        );
+      } else {
+        await client.query(
+          `INSERT INTO context_processing_status (
+            id,
+            company_id,
+            type,
+            status,
+            error_message,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, NOW())
+          ON CONFLICT (id, type) DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            updated_at = NOW()`,
+          [componentId, "olas", "component", status, errorMessage || null]
+        );
+      }
     });
   });
 }
