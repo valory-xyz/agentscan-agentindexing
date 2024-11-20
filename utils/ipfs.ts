@@ -41,6 +41,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
     console.log(
       `Attempt ${attempts + 1} of ${maxRetries} for ${cleanCid} on ${gateway}`
     );
+
     try {
       if (!gateway) throw new Error("No available gateways");
 
@@ -74,10 +75,10 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
             : response.data;
       } catch (e: any) {
         console.log("Failed to parse directory response:", e);
-
         throw new Error(`Invalid directory response format: ${e.message}`);
       }
 
+      // Handle Objects[0].Links format
       if (parsedData?.Objects?.[0]?.Links) {
         console.log(
           "parsedData Objects.Links",
@@ -86,27 +87,70 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
         console.log(
           `Found ${parsedData.Objects[0].Links.length} items in directory response`
         );
-        return parsedData.Objects[0].Links.map((item: any) => ({
+
+        const contents = parsedData.Objects[0].Links.map((item: any) => ({
           name: item.Name,
           hash: item.Hash["/"],
           size: item.Size,
           type: item.Type,
           isDirectory: item.Type === 1 || item.Type === "dir",
         }));
+
+        // Recursively process directories
+        for (const item of contents) {
+          if (item.isDirectory) {
+            try {
+              const subDirContents = await readIPFSDirectory(
+                item.hash,
+                maxRetries
+              );
+              if (subDirContents) {
+                item.contents = subDirContents;
+              }
+            } catch (error) {
+              console.log(`Failed to read subdirectory ${item.hash}:`, error);
+              // Continue with other items even if one subdirectory fails
+            }
+          }
+        }
+
+        return contents;
       }
 
+      // Handle Links format
       if (parsedData?.Links) {
         console.log("parsedData Links", parsedData.Links);
         console.log(
           `Found ${parsedData.Links.length} items in directory response`
         );
-        return parsedData.Links.map((item: any) => ({
+
+        const contents = parsedData.Links.map((item: any) => ({
           name: item.Name,
           hash: item.Hash["/"],
           size: item.Tsize,
           type: item.Type,
           isDirectory: item.Type === 1 || item.Type === "dir",
         }));
+
+        // Recursively process directories
+        for (const item of contents) {
+          if (item.isDirectory) {
+            try {
+              const subDirContents = await readIPFSDirectory(
+                item.hash,
+                maxRetries
+              );
+              if (subDirContents) {
+                item.contents = subDirContents;
+              }
+            } catch (error) {
+              console.log(`Failed to read subdirectory ${item.hash}:`, error);
+              // Continue with other items even if one subdirectory fails
+            }
+          }
+        }
+
+        return contents;
       }
 
       console.log(
@@ -137,6 +181,7 @@ async function readIPFSDirectory(cid: string, maxRetries: number = 25) {
       attempts++;
     }
   }
+
   throw (
     lastError ||
     new Error("No valid directory structure found after all retries")
@@ -317,105 +362,22 @@ async function determineCategory(contents: any[]): Promise<string | null> {
 }
 
 // Create a queue for database operations
-export const dbQueue = new pQueue({ concurrency: 5 }); // Limit concurrent DB operations
+export const dbQueue = new pQueue({
+  concurrency: 5,
+  timeout: 60000, // 1 minute timeout
+  throwOnTimeout: true,
+}).on("error", async (error) => {
+  console.log(`Database operation failed: ${error.message}`);
+});
 
-// Update processIPFSItem to use queue
-async function processIPFSItem(
-  item: any,
-  currentPath = "",
-  retryAttempts = 25,
-  componentId: string
-) {
+// Add error boundary wrapper for queue operations
+async function safeQueueOperation<T>(
+  operation: () => Promise<T>
+): Promise<T | null> {
   try {
-    if (item.isDirectory) {
-      // Add check for tests directory
-      if (item.name === "tests" || currentPath.includes("tests")) {
-        console.log("Skipping tests directory");
-        return;
-      }
-
-      const dirUrl = `https://gateway.autonolas.tech/ipfs/${item.hash}`;
-
-      // Add fallback for readIPFSDirectory
-      let contents;
-      try {
-        contents = await readIPFSDirectory(dirUrl);
-      } catch (error) {
-        console.error(`Failed to read IPFS directory ${dirUrl}:`, error);
-        // Fallback: treat as empty directory and continue
-        contents = [];
-      }
-      console.log(`Contents: ${contents}`);
-
-      // Add fallback for determineCategory
-      let category;
-      try {
-        category = await determineCategory(contents);
-      } catch (error) {
-        console.error(`Failed to determine category for ${dirUrl}:`, error);
-        // Fallback: use a default category or derive from path
-        category = currentPath.split("/")[0] || "unknown";
-      }
-
-      let newPath;
-      if (category) {
-        newPath = currentPath
-          ? path.join(currentPath, item.name)
-          : path.join(category, item.name);
-      } else {
-        newPath = currentPath ? path.join(currentPath, item.name) : item.name;
-      }
-
-      const outputDir = path.join("./downloads", newPath);
-      console.log(`Processing directory: ${newPath}`);
-
-      try {
-        await fs.mkdir(outputDir, { recursive: true });
-      } catch (error) {
-        console.error(`Failed to create directory ${outputDir}:`, error);
-        // Continue execution even if directory creation fails
-      }
-
-      // Process contents with individual error handling
-      for (const content of contents) {
-        try {
-          console.log(`Processing item ${content.name} for ${newPath}`);
-          await processIPFSItem(content, newPath, retryAttempts, componentId);
-        } catch (error) {
-          console.error(`Failed to process item ${content.name}:`, error);
-          // Continue with next item instead of failing completely
-          continue;
-        }
-      }
-    } else {
-      if (
-        item.name.endsWith(".py") ||
-        item.name.endsWith(".proto") ||
-        item.name.toLowerCase() === "readme.md"
-      ) {
-        const outputDir = path.join("./downloads", currentPath);
-
-        // Queue the database operation
-        dbQueue.add(async () => {
-          try {
-            await downloadIPFSFile(
-              item.hash,
-              item.name,
-              outputDir,
-              componentId,
-              15
-            );
-          } catch (error) {
-            throw error;
-          }
-        });
-      }
-    }
-  } catch (error: any) {
-    console.log(
-      `Error processing item ${item?.name || "unknown"}:`,
-      error.message
-    );
+    return await operation();
+  } catch (error) {
+    console.error("Queue operation failed:", error);
     return null;
   }
 }
@@ -424,54 +386,41 @@ async function processIPFSItem(
 async function safeDownload(
   ipfsHash: string,
   componentId: string,
-  retryAttempts = 15
+  retryAttempts = 15,
+  attempts = 0
 ): Promise<void> {
   try {
     console.log(`Starting safe download for hash: ${ipfsHash}`);
 
-    // First, update status to processing
-
-    // Create downloads directory
     await fs.mkdir("./downloads", { recursive: true }).catch((err) => {
       console.warn("Directory creation warning:", err);
     });
 
-    // Try to read directory with better error handling
-    let contents = [];
-    try {
-      contents = await readIPFSDirectory(ipfsHash, retryAttempts);
-      console.log(`Found ${contents?.length || 0} items in root directory`);
-    } catch (error) {
-      console.error(`Failed to read IPFS directory ${ipfsHash}:`, error);
-    }
-
-    if (!contents || !Array.isArray(contents)) {
-      //update code_processing_status to failed
-      await executeQuery(async (client) => {
-        await client.query(
-          `UPDATE code_processing_status SET status = $1, error_message = $2 WHERE component_id = $3`,
-          [
-            ProcessingStatus.FAILED,
-            "Failed to read IPFS directory",
-            componentId,
-          ]
-        );
-      });
-    }
-
-    // Process each item with individual error handling
-    for (const item of contents) {
-      try {
-        await processIPFSItem(item, "", retryAttempts, componentId);
-      } catch (error) {
-        console.error(
-          `Failed to process item ${item?.name || "unknown"}:`,
-          error
-        );
-      }
-    }
-  } catch (error) {
+    await traverseDAG(ipfsHash, componentId, "", {}, 25);
+  } catch (error: any) {
     console.error(`Safe download failed for ${ipfsHash}:`, error);
+
+    if (attempts < retryAttempts) {
+      return await safeDownload(
+        ipfsHash,
+        componentId,
+        retryAttempts,
+        attempts + 1
+      );
+    } else {
+      // // Update status to failed
+      // await executeQuery(async (client) => {
+      //   await client.query(
+      //     `UPDATE code_processing_status SET status = $1, error_message = $2 WHERE component_id = $3`,
+      //     [
+      //       ProcessingStatus.FAILED,
+      //       `DAG traversal failed: ${error.message}`,
+      //       componentId,
+      //     ]
+      //   );
+      // });
+      return;
+    }
   }
 }
 
@@ -481,7 +430,11 @@ export async function recursiveDownload(
   retryAttempts = 15,
   componentId: string
 ): Promise<void> {
-  return await safeDownload(ipfsHash, componentId, retryAttempts);
+  try {
+    return await safeDownload(ipfsHash, componentId, retryAttempts);
+  } catch (error) {
+    console.error(`Failed to download ${ipfsHash}:`, error);
+  }
 }
 
 // // Simplified retry function
@@ -527,89 +480,91 @@ function getChunkFileName(
   return path.join(directory, newName + parsedPath.ext);
 }
 
-// Update processCodeContent to use queue
+// Update processCodeContent to use safer queue operations
 async function processCodeContent(
   componentId: string,
   relativePath: string,
   cleanedCodeContent: string
 ): Promise<void> {
-  const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
+  try {
+    const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
 
-  if (!Array.isArray(embeddings) || embeddings.length === 1) {
-    console.log("Processing as single embedding");
-    // Single embedding case - store as normal
-    const mainInsertQuery = `
-        INSERT INTO code_embeddings (
-          component_id,
-          file_path,
-          code_content,
-          embedding,
-          created_at,
-          updated_at
-        ) VALUES ($1, $2, $3, $4, NOW(), NOW())
-        ON CONFLICT (component_id, file_path) 
-        DO UPDATE SET
-          code_content = EXCLUDED.code_content,
-          embedding = EXCLUDED.embedding,
-          updated_at = NOW()
-      `;
-    return dbQueue.add(async () => {
-      await executeQuery(async (client) => {
-        await client.query(mainInsertQuery, [
-          componentId,
-          relativePath,
-          cleanedCodeContent,
-          embeddings,
-        ]);
+    if (!Array.isArray(embeddings) || embeddings.length === 1) {
+      await safeQueueOperation(async () => {
+        await dbQueue.add(
+          async () => {
+            await executeQuery(async (client) => {
+              await client.query(
+                `INSERT INTO code_embeddings (
+                component_id,
+                file_path,
+                code_content,
+                embedding,
+                created_at,
+                updated_at
+              ) VALUES ($1, $2, $3, $4, NOW(), NOW())
+               ON CONFLICT (component_id, file_path) DO UPDATE SET
+                 code_content = EXCLUDED.code_content,
+                 embedding = EXCLUDED.embedding,
+                 updated_at = NOW()
+              RETURNING component_id, file_path`,
+                [componentId, relativePath, cleanedCodeContent, embeddings]
+              );
+            });
+          },
+          { timeout: 30000 }
+        ); // Add timeout per operation
       });
-      console.log(`Inserted ${relativePath}`);
-    });
-  } else {
-    console.log("Processing as multiple embeddings");
+    } else {
+      const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
 
-    // Multiple embeddings case
-    const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
-
-    for (let i = 0; i < embeddings.length; i++) {
-      const chunkPath = getChunkFileName(relativePath, i, embeddings.length);
-      console.log(
-        `Processing chunk ${i + 1} of ${embeddings.length}: ${chunkPath}`
+      // Process chunks in parallel with individual error handling
+      await Promise.allSettled(
+        chunks.map((chunk, i) =>
+          safeQueueOperation(async () => {
+            const chunkPath = getChunkFileName(
+              relativePath,
+              i,
+              embeddings.length
+            );
+            await dbQueue.add(
+              async () => {
+                await executeQuery(async (client) => {
+                  await client.query(
+                    `INSERT INTO code_embeddings (
+                    component_id,
+                    file_path,
+                    code_content,
+                    embedding,
+                    is_chunk,
+                    original_file_path,
+                    created_at,
+                    updated_at
+                  ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                   ON CONFLICT (component_id, file_path) DO UPDATE SET
+                     code_content = EXCLUDED.code_content,
+                     embedding = EXCLUDED.embedding,
+                     updated_at = NOW()
+                  RETURNING component_id, file_path`,
+                    [
+                      componentId,
+                      chunkPath,
+                      chunk,
+                      embeddings[i],
+                      true,
+                      relativePath,
+                    ]
+                  );
+                });
+              },
+              { timeout: 30000 }
+            ); // Add timeout per operation
+          })
+        )
       );
-      const chunkInsertQuery = `
-          INSERT INTO code_embeddings (
-            component_id,
-            file_path,
-            code_content,
-            embedding,
-            is_chunk,
-            original_file_path,
-            created_at,
-            updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-          ON CONFLICT (component_id, file_path) 
-          DO UPDATE SET
-            code_content = EXCLUDED.code_content,
-            embedding = EXCLUDED.embedding,
-            updated_at = NOW()
-          RETURNING component_id, file_path
-        `;
-      return dbQueue.add(async () => {
-        const query = await executeQuery(async (client) => {
-          return await client.query(chunkInsertQuery, [
-            componentId,
-            chunkPath,
-            chunks[i],
-            embeddings[i],
-            true,
-            relativePath,
-          ]);
-        });
-        console.log(
-          `Chunk inserted ${i + 1} of ${embeddings.length}:`,
-          query.rows
-        );
-      });
     }
+  } catch (error) {
+    console.error(`Failed to process code content for ${relativePath}:`, error);
   }
 }
 
@@ -631,4 +586,218 @@ function getContentTypeHeaders(format?: string) {
     "Cache-Control": "only-if-cached",
     "If-None-Match": "*",
   };
+}
+
+// Add these new types
+interface DAGNode {
+  Links: Array<{
+    Name: string;
+    Hash: {
+      "/": string;
+    };
+    Size: number;
+    Type?: number | string;
+  }>;
+  Data?: any;
+}
+
+interface DAGResponse {
+  Links?: DAGNode["Links"];
+  Objects?: Array<DAGNode>;
+}
+
+interface IPFSContent {
+  name: string;
+  hash: string;
+  size: number;
+  type: number | string;
+  isDirectory: boolean;
+  contents?: IPFSContent[];
+}
+
+interface VisitedNode {
+  timestamp: number;
+  processed: boolean;
+}
+
+interface VisitedNodes {
+  [cid: string]: VisitedNode;
+}
+
+async function traverseDAG(
+  cid: string,
+  componentId: string,
+  currentPath = "",
+  visited: VisitedNodes = {},
+  maxRetries = 25
+): Promise<{
+  visited: VisitedNodes;
+  contents: IPFSContent[];
+  currentPath?: string;
+}> {
+  const cleanCid = cid.replace(/^https:\/\/[^/]+\/ipfs\//, "");
+  let attempts = 0;
+
+  // Check if already visited recently (within last hour)
+  if (
+    visited[cleanCid] &&
+    visited[cleanCid].processed &&
+    Date.now() - visited[cleanCid].timestamp < 3600000
+  ) {
+    return { visited, contents: [], currentPath };
+  }
+
+  while (attempts < maxRetries) {
+    const gateway = getNextGateway();
+    console.log(
+      `Attempt ${
+        attempts + 1
+      } of ${maxRetries} for ${cleanCid} on ${gateway} (path: ${currentPath})`
+    );
+
+    try {
+      const response = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
+        headers: {
+          Accept: "application/vnd.ipld.dag-json, application/json",
+          "X-Content-Type-Options": "nosniff",
+        },
+        params: {
+          format: "dag-json",
+        },
+      });
+
+      console.log(response.data);
+
+      if (
+        typeof response.data === "string" &&
+        (response.data.includes("Blocked content") ||
+          response.data.includes("ipfs cat") ||
+          response.data.includes("Error:") ||
+          response.data.includes("<!DOCTYPE html>") ||
+          response.data.includes("<html>") ||
+          response.data.toLowerCase().includes("<!doctype html>"))
+      ) {
+        throw new Error("Invalid response format from gateway");
+      }
+
+      let parsedData;
+      try {
+        parsedData =
+          typeof response.data === "string"
+            ? JSON.parse(response.data)
+            : response.data;
+      } catch (e: any) {
+        console.log("Failed to parse DAG response:", e);
+        throw new Error(`Invalid DAG response format: ${e.message}`);
+      }
+
+      // Mark as visited with timestamp
+      visited[cleanCid] = {
+        timestamp: Date.now(),
+        processed: true,
+      };
+
+      let contents: IPFSContent[] = [];
+
+      // Process directory contents (either format)
+      if (parsedData?.Objects?.[0]?.Links || parsedData?.Links) {
+        const links = parsedData?.Objects?.[0]?.Links || parsedData?.Links;
+        contents = links.map((item: any) => ({
+          name: item.Name,
+          hash: item.Hash["/"],
+          size: item.Size || item.Tsize,
+          type: item.Type,
+          isDirectory: item.Type === 1 || item.Type === "dir",
+        }));
+
+        // Determine category for root level
+        if (!currentPath) {
+          const category = await determineCategory(contents);
+          if (category) {
+            currentPath = category;
+          }
+        }
+
+        // Process each item
+        for (const item of contents) {
+          const newPath = currentPath
+            ? path.join(currentPath, item.name)
+            : item.name;
+
+          if (item.isDirectory) {
+            // Skip tests directory
+            if (item.name === "tests" || newPath.includes("tests")) {
+              console.log(`Skipping tests directory: ${newPath}`);
+              continue;
+            }
+
+            try {
+              const subDirResult = await traverseDAG(
+                item.hash,
+                componentId,
+                newPath,
+                visited,
+                maxRetries
+              );
+              item.contents = subDirResult.contents;
+              visited = subDirResult.visited; // Merge visited nodes
+            } catch (error) {
+              console.error(`Failed to read subdirectory ${newPath}:`, error);
+            }
+          } else if (
+            item.name.endsWith(".py") ||
+            item.name.endsWith(".proto") ||
+            item.name.toLowerCase() === "readme.md"
+          ) {
+            // Process file content and generate embeddings
+            try {
+              await dbQueue.add(async () => {
+                const response = await axiosInstance.get(
+                  `${gateway}/ipfs/${item.hash}`,
+                  {
+                    headers: getContentTypeHeaders("raw"),
+                    params: { format: "raw" },
+                  }
+                );
+
+                const codeContent = response.data;
+                const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
+
+                // Create the directory if it doesn't exist
+                const outputDir = path.join("./downloads", currentPath);
+                await fs.mkdir(outputDir, { recursive: true });
+
+                // Write the file
+                const sanitizedFileName = item.name.replace(
+                  /[<>:"/\\|?*]/g,
+                  "_"
+                );
+                const outputPath = path.join(outputDir, sanitizedFileName);
+                await fs.writeFile(outputPath, codeContent);
+
+                // Process the content for embeddings
+                await processCodeContent(
+                  componentId,
+                  path.join(currentPath, item.name),
+                  cleanedCodeContent
+                );
+              });
+            } catch (error) {
+              console.error(`Failed to process file ${newPath}:`, error);
+            }
+          }
+        }
+      }
+
+      return { visited, contents, currentPath };
+    } catch (error) {
+      console.log(
+        `Error traversing DAG node ${currentPath}/${cleanCid}:`,
+        error
+      );
+      attempts++;
+    }
+  }
+
+  return { visited, contents: [], currentPath };
 }
