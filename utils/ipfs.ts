@@ -17,11 +17,7 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500,
 });
 
-const IPFS_GATEWAYS = [
-  "https://gateway.autonolas.tech",
-  "https://ipfs.io",
-  "https://dweb.link",
-];
+const IPFS_GATEWAYS = ["https://gateway.autonolas.tech", "https://ipfs.io"];
 
 let currentGatewayIndex = 0;
 
@@ -401,6 +397,49 @@ function isIPFSDirectory(rawItem: any): boolean {
   return !item.Name.includes(".");
 }
 
+// Add retry configuration for file processing
+const FILE_PROCESSING_RETRIES = {
+  MAX_ATTEMPTS: 3,
+  INITIAL_DELAY: 1000,
+  MAX_DELAY: 5000,
+  BACKOFF_FACTOR: 1.5,
+};
+
+// Add helper function for file processing retries
+async function withFileProcessingRetry<T>(
+  operation: () => Promise<T>,
+  fileName: string
+): Promise<T> {
+  let attempt = 0;
+  let lastError: Error | null = null;
+
+  while (attempt < FILE_PROCESSING_RETRIES.MAX_ATTEMPTS) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      attempt++;
+
+      if (attempt < FILE_PROCESSING_RETRIES.MAX_ATTEMPTS) {
+        const delay = Math.min(
+          FILE_PROCESSING_RETRIES.INITIAL_DELAY *
+            Math.pow(FILE_PROCESSING_RETRIES.BACKOFF_FACTOR, attempt),
+          FILE_PROCESSING_RETRIES.MAX_DELAY
+        );
+        console.log(`Retry ${attempt} for ${fileName}. Waiting ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      `Failed to process ${fileName} after ${FILE_PROCESSING_RETRIES.MAX_ATTEMPTS} attempts`
+    )
+  );
+}
+
 async function traverseDAG(
   cid: string,
   componentId: string,
@@ -433,15 +472,18 @@ async function traverseDAG(
     );
 
     try {
-      const response = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
-        headers: {
-          Accept: "application/vnd.ipld.dag-json, application/json",
-          "X-Content-Type-Options": "nosniff",
-        },
-        params: {
-          format: "dag-json",
-        },
-      });
+      //add file processing retry
+      const response = await withFileProcessingRetry(async () => {
+        return await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
+          headers: {
+            Accept: "application/vnd.ipld.dag-json, application/json",
+            "X-Content-Type-Options": "nosniff",
+          },
+          params: {
+            format: "dag-json",
+          },
+        });
+      }, cleanCid);
 
       if (
         typeof response.data === "string" &&
@@ -540,9 +582,9 @@ async function traverseDAG(
           ) {
             console.log("Processing file", item.hash, "at", newPath);
             console.log("url:", `${gateway}/ipfs/${item.hash}`);
-            // Process file content and generate embeddings
+
             try {
-              await dbQueue.add(async () => {
+              await withFileProcessingRetry(async () => {
                 const response = await axiosInstance.get(
                   `${gateway}/ipfs/${item.hash}`,
                   {
@@ -554,8 +596,7 @@ async function traverseDAG(
 
                 const codeContent = response.data;
                 if (!codeContent) {
-                  console.warn(`Empty content received for ${item.hash}`);
-                  return;
+                  throw new Error(`Empty content received for ${item.hash}`);
                 }
 
                 const cleanedCodeContent =
@@ -567,15 +608,19 @@ async function traverseDAG(
                   `Content length for ${item.name}: ${cleanedCodeContent.length}`
                 );
 
-                // Process the content for embeddings directly
-                await processCodeContent(
-                  componentId,
-                  path.join(currentPath, item.name),
-                  cleanedCodeContent
-                );
-              });
+                await dbQueue.add(async () => {
+                  await processCodeContent(
+                    componentId,
+                    path.join(currentPath, item.name),
+                    cleanedCodeContent
+                  );
+                });
+              }, item.name);
             } catch (error) {
-              console.error(`Failed to process file ${newPath}:`, error);
+              console.error(
+                `Failed to process file ${newPath} after all retries:`,
+                error
+              );
             }
           }
         }
