@@ -93,10 +93,6 @@ async function safeDownload(
   try {
     console.log(`Starting safe download for hash: ${ipfsHash}`);
 
-    await fs.mkdir("./downloads", { recursive: true }).catch((err) => {
-      console.warn("Directory creation warning:", err);
-    });
-
     await traverseDAG(ipfsHash, componentId, "", {}, 25);
   } catch (error: any) {
     console.error(`Safe download failed for ${ipfsHash}:`, error);
