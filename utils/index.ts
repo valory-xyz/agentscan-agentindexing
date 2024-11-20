@@ -75,7 +75,7 @@ export const fetchAndEmbedMetadata = async (
   const metadata = await fetchAndTransformMetadata(
     configHash,
     maxRetries,
-    configInfo
+    configInfo as ConfigInfo
   );
 
   if (metadata?.packageHash) {
@@ -92,160 +92,186 @@ export const fetchAndEmbedMetadata = async (
   return metadata;
 };
 
-// Add this new helper function
+// Add type definitions for better type safety
+interface ConfigInfo {
+  type: "component" | "service" | "agent";
+  id: string;
+}
+
+interface MetadataJson {
+  code_uri?: string;
+  packageHash?: string | null;
+  name?: string;
+  description?: string;
+  image?: string;
+  metadataURI?: string;
+  [key: string]: any;
+}
+
+// Update fetchAndTransformMetadata with better error handling and types
 export const fetchAndTransformMetadata = async (
   configHash: string,
   maxRetries = 3,
-  configInfo: any
-) => {
+  configInfo: ConfigInfo
+): Promise<MetadataJson | null> => {
   const metadataPrefix = "f01701220";
   const finishedConfigHash = configHash.slice(2);
   const ipfsURL = "https://gateway.autonolas.tech/ipfs/";
   const metadataURI = `${ipfsURL}${metadataPrefix}${finishedConfigHash}`;
 
-  // Implement retry logic
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const metadata = await axios.get(metadataURI, {
-        timeout: 10000, // 10 seconds timeout
-      });
-      let metadataJson = metadata.data;
-
-      // Handle package hash extraction first
-      if (metadataJson.code_uri) {
-        // Try different possible formats
-        if (metadataJson.code_uri.includes("ipfs://")) {
-          metadataJson.packageHash = metadataJson.code_uri.split("ipfs://")[1];
-        } else if (metadataJson.code_uri.includes("/ipfs/")) {
-          metadataJson.packageHash = metadataJson.code_uri.split("/ipfs/")[1];
-        } else {
-          // If code_uri exists but doesn't match expected formats
-          metadataJson.packageHash = metadataJson.code_uri;
+      const { data: metadataJson } = await axios.get<MetadataJson>(
+        metadataURI,
+        {
+          timeout: 10000,
         }
+      );
 
-        // Clean up any trailing slashes or whitespace
-        metadataJson.packageHash = metadataJson.packageHash
-          .trim()
-          .replace(/\/$/, "");
-      } else if (metadataJson.packageHash) {
-        // If packageHash already exists, ensure it's clean
-        metadataJson.packageHash = metadataJson.packageHash
-          .trim()
-          .replace(/\/$/, "");
-      } else {
-        // If no packageHash can be derived
-        metadataJson.packageHash = null;
-      }
+      // Extract package hash with improved error handling
+      metadataJson.packageHash = extractPackageHash(
+        metadataJson.code_uri,
+        metadataJson.packageHash
+      );
 
-      // Download package regardless of embedding status
+      // Process package download in the background
       if (metadataJson.packageHash) {
-        console.log("Downloading package hash...", metadataJson.packageHash);
-        try {
-          void recursiveDownload(metadataJson.packageHash, 15, configInfo.id);
-        } catch (error) {
-          console.error("Error downloading package hash:", error);
-        }
-      } else {
-        console.log("No package hash found", configInfo.id);
+        void processPackageDownload(metadataJson.packageHash, configInfo.id);
       }
 
-      try {
-        dbQueue.add(async () => {
-          // Embedding storage logic
-          const id = `${configInfo.type}-${configInfo.id}`;
-          const checkQuery = `SELECT 1 FROM metadata_embeddings WHERE id = $1`;
-          const result = await executeQuery(async (client) => {
-            return await client.query(checkQuery, [id]);
-          });
-          if (result.rows.length > 0) {
-            console.log(`Embedding already exists for ${id}`);
-            return;
-          }
+      // Process metadata embedding in the background
+      void processMetadataEmbedding(metadataJson, configInfo);
 
-          // Generate embedding from metadata name and description
-          const metadataString = `${metadataJson.name || ""} ${
-            metadataJson.description || ""
-          }`;
-
-          // Clean up the string: remove extra whitespace and newlines
-          const cleanedMetadataString = metadataString
-            .replace(/\s+/g, " ")
-            .trim();
-
-          const embedding = await generateEmbeddingWithRetry(
-            cleanedMetadataString
-          );
-
-          if (!embedding) {
-            throw new Error("Error generating metadata embedding");
-          }
-
-          // Build the insert query based on entity type
-          let insertQuery = `
-          INSERT INTO metadata_embeddings (
-            id,
-            embedding,
-            metadata_content,
-            created_at
-        `;
-
-          // Add the appropriate ID column based on type
-          if (configInfo.type === "component") {
-            insertQuery += `, component_id`;
-          } else if (configInfo.type === "service") {
-            insertQuery += `, service_id`;
-          } else if (configInfo.type === "agent") {
-            insertQuery += `, agent_id`;
-          }
-
-          insertQuery += `) VALUES ($1, $2, $3, CURRENT_TIMESTAMP`;
-
-          // Add the ID value placeholder
-          insertQuery += `, $4)`;
-
-          // Create params array with the appropriate values
-          const params = [id, embedding, metadataString, configInfo.id];
-
-          // Execute the query
-          await executeQuery(async (client) => {
-            await client.query(insertQuery, params);
-          });
-
-          console.log(
-            `Stored embedding for ${configInfo.type} ${configInfo.id}`
-          );
-        });
-      } catch (error) {
-        console.error("Error storing metadata embedding:", error);
-      }
-
-      // Transform IPFS URLs to gateway URLs
-      ["image", "code_uri"].forEach((field) => {
-        if (metadataJson[field]?.startsWith("ipfs://")) {
-          metadataJson[field] = metadataJson[field].replace(
-            "ipfs://",
-            "https://gateway.autonolas.tech/ipfs/"
-          );
-        }
-      });
-
-      metadataJson.metadataURI = metadataURI;
-
-      return metadataJson;
-    } catch (e) {
+      // Transform IPFS URLs
+      return transformIpfsUrls(metadataJson, metadataURI);
+    } catch (error) {
       if (attempt === maxRetries - 1) {
-        console.log(`Failed after ${maxRetries} attempts:`, e);
+        console.error(
+          `Failed to fetch metadata after ${maxRetries} attempts:`,
+          error
+        );
         return null;
       }
-
-      // Faster backoff: 500ms base with smaller multiplier (500ms, 1s, 1.5s)
-      const backoffTime = Math.min(500 * (attempt + 1), 2000);
-      console.log(
-        `Attempt ${attempt + 1} failed for ${metadataURI}, retrying in ${
-          backoffTime / 1000
-        }s...`
-      );
-      await delay(backoffTime);
+      await handleRetry(attempt, metadataURI);
     }
   }
+  return null;
 };
+
+// Helper functions for better code organization
+function extractPackageHash(
+  codeUri?: string,
+  existingHash?: string | null
+): string | null {
+  if (codeUri) {
+    if (codeUri.includes("ipfs://")) {
+      return codeUri.split("ipfs://")[1]?.trim().replace(/\/$/, "") || null;
+    }
+    if (codeUri.includes("/ipfs/")) {
+      return codeUri.split("/ipfs/")[1]?.trim().replace(/\/$/, "") || null;
+    }
+    return codeUri.trim().replace(/\/$/, "");
+  }
+  return existingHash?.trim().replace(/\/$/, "") || null;
+}
+
+async function processPackageDownload(packageHash: string, configId: string) {
+  try {
+    console.log("Downloading package hash...", packageHash);
+    void recursiveDownload(packageHash, 15, configId);
+  } catch (error) {
+    console.error("Error downloading package hash:", error);
+  }
+}
+
+async function processMetadataEmbedding(
+  metadata: MetadataJson,
+  configInfo: ConfigInfo
+) {
+  try {
+    await dbQueue.add(async () => {
+      const id = `${configInfo.type}-${configInfo.id}`;
+
+      // Check for existing embedding
+      const exists = await checkExistingEmbedding(id);
+      if (exists) return;
+
+      // Generate and store embedding
+      const metadataString = `${metadata.name || ""} ${
+        metadata.description || ""
+      }`
+        .replace(/\s+/g, " ")
+        .trim();
+      const embedding = await generateEmbeddingWithRetry(metadataString);
+
+      if (!embedding) {
+        throw new Error("Error generating metadata embedding");
+      }
+
+      await storeEmbedding(id, embedding, metadataString, configInfo);
+    });
+  } catch (error) {
+    console.error("Error storing metadata embedding:", error);
+  }
+}
+
+async function checkExistingEmbedding(id: string): Promise<boolean> {
+  const result = await executeQuery(async (client) => {
+    return await client.query(
+      "SELECT 1 FROM metadata_embeddings WHERE id = $1",
+      [id]
+    );
+  });
+  return result.rows.length > 0;
+}
+
+async function storeEmbedding(
+  id: string,
+  embedding: number[],
+  metadataString: string,
+  configInfo: ConfigInfo
+) {
+  const typeColumn = `${configInfo.type}_id`;
+
+  const query = `
+    INSERT INTO metadata_embeddings (
+      id,
+      embedding,
+      metadata_content,
+      created_at,
+      ${typeColumn}
+    ) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
+  `;
+
+  await executeQuery(async (client) => {
+    await client.query(query, [id, embedding, metadataString, configInfo.id]);
+  });
+
+  console.log(`Stored embedding for ${configInfo.type} ${configInfo.id}`);
+}
+
+function transformIpfsUrls(
+  metadata: MetadataJson,
+  metadataURI: string
+): MetadataJson {
+  const gatewayUrl = "https://gateway.autonolas.tech/ipfs/";
+
+  ["image", "code_uri"].forEach((field) => {
+    if (metadata[field]?.startsWith("ipfs://")) {
+      metadata[field] = metadata[field]?.replace("ipfs://", gatewayUrl);
+    }
+  });
+
+  metadata.metadataURI = metadataURI;
+  return metadata;
+}
+
+async function handleRetry(attempt: number, metadataURI: string) {
+  const backoffTime = Math.min(500 * (attempt + 1), 2000);
+  console.log(
+    `Attempt ${attempt + 1} failed for ${metadataURI}, retrying in ${
+      backoffTime / 1000
+    }s...`
+  );
+  await delay(backoffTime);
+}

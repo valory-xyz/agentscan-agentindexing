@@ -20,9 +20,10 @@ import {
 
 // Memoize the metadata fetching to prevent duplicate requests
 const memoizedFetchMetadata = memoize(
-  (hash: string, id: string, type: string) =>
+  (hash: string, id: string, type: "component" | "service" | "agent") =>
     fetchAndTransformMetadata(hash, 3, { type, id }),
-  (hash: string, id: string, type: string) => `${hash}-${id}-${type}`
+  (hash: string, id: string, type: "component" | "service" | "agent") =>
+    `${hash}-${id}-${type}`
 );
 
 const memoizedFetchAndEmbedMetadata = memoize(

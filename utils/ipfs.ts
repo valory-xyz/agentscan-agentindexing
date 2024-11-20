@@ -17,18 +17,21 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500,
 });
 
-const IPFS_GATEWAYS = ["https://gateway.autonolas.tech"];
+const IPFS_GATEWAYS = [
+  "https://gateway.autonolas.tech",
+  "https://ipfs.io",
+  "https://dweb.link",
+];
 
 let currentGatewayIndex = 0;
 
-function getNextGateway(): string | undefined {
+function getNextGateway(): string {
   if (IPFS_GATEWAYS.length === 0) {
     throw new Error("No IPFS gateways configured");
   }
   const gateway = IPFS_GATEWAYS[currentGatewayIndex];
-
   currentGatewayIndex = (currentGatewayIndex + 1) % IPFS_GATEWAYS.length;
-  return gateway;
+  return gateway as string;
 }
 
 // Simplify the status enum
@@ -36,6 +39,20 @@ enum ProcessingStatus {
   PROCESSING = "processing",
   COMPLETED = "completed",
   FAILED = "failed",
+}
+
+// Add retry delay configuration
+const RETRY_DELAYS = {
+  MIN_DELAY: 1000, // 1 second
+  MAX_DELAY: 30000, // 30 seconds
+  MULTIPLIER: 1.5,
+};
+
+// Add a new helper function for calculating retry delays
+function calculateRetryDelay(attempt: number): number {
+  const delay =
+    RETRY_DELAYS.MIN_DELAY * Math.pow(RETRY_DELAYS.MULTIPLIER, attempt);
+  return Math.min(delay, RETRY_DELAYS.MAX_DELAY);
 }
 
 async function downloadIPFSFile(
@@ -166,24 +183,30 @@ async function downloadIPFSFile(
         }
 
         // Exponential backoff
-        const delay = Math.min(3000 * Math.pow(2, attempt - 1), 30000);
+        const delay = calculateRetryDelay(attempt);
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
 
     throw lastError || new Error("All gateways failed");
   } catch (error: any) {
-    // Update status to failed
+    const errorMessage = error?.message || "Unknown error";
+    console.error(`Download failed for ${relativePath}: ${errorMessage}`);
+
+    // Update status with more detailed error information
     await executeQuery(async (client) => {
       await client.query(
         `
         UPDATE code_processing_status 
-        SET status = $1, error_message = $2, updated_at = CURRENT_TIMESTAMP
+        SET status = $1, 
+            error_message = $2, 
+            retry_count = COALESCE(retry_count, 0) + 1,
+            updated_at = CURRENT_TIMESTAMP
         WHERE component_id = $3 AND file_path = $4
-      `,
+        `,
         [
           ProcessingStatus.FAILED,
-          error?.message || "Unknown error",
+          `${errorMessage} (Gateway: ${getNextGateway()})`,
           componentId,
           relativePath,
         ]
@@ -667,6 +690,11 @@ async function traverseDAG(
         error
       );
       attempts++;
+
+      // Add exponential backoff delay
+      const delay = calculateRetryDelay(attempts);
+      console.log(`Waiting ${delay}ms before retry...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 
