@@ -586,11 +586,11 @@ async function traverseDAG(
                   {
                     headers: getContentTypeHeaders("raw"),
                     params: { format: "raw" },
-                    responseType: "text",
                   }
                 );
 
                 const codeContent = response.data;
+                console.log("codeContent:", codeContent);
                 if (!codeContent) {
                   throw new Error(`Empty content received for ${item.hash}`);
                 }
