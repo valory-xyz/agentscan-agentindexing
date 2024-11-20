@@ -38,8 +38,8 @@ enum ProcessingStatus {
 // Add retry delay configuration
 const RETRY_DELAYS = {
   MIN_DELAY: 1000, // 1 second
-  MAX_DELAY: 25000, // 30 seconds
-  MULTIPLIER: 1.25,
+  MAX_DELAY: 20000, // 20 seconds
+  MULTIPLIER: 1.1,
 };
 
 // Add a new helper function for calculating retry delays
