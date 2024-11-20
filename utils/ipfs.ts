@@ -266,11 +266,6 @@ async function processCodeContent(
       const results = await Promise.allSettled(
         chunks.map((chunk, i) =>
           safeQueueOperation(async () => {
-            const chunkPath = getChunkFileName(
-              relativePath,
-              i,
-              embeddings.length
-            );
             return await dbQueue.add(async () => {
               await executeQuery(async (client) => {
                 await client.query(
