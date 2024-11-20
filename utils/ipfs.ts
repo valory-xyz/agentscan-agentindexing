@@ -665,10 +665,6 @@ async function traverseDAG(
 
       return { visited, contents, currentPath };
     } catch (error) {
-      console.log(
-        `DAG traversal failed for ${currentPath}/${cleanCid}:`,
-        error
-      );
       attempts++;
 
       // Add exponential backoff delay
@@ -677,7 +673,7 @@ async function traverseDAG(
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-
+  console.log(`DAG traversal failed for ${currentPath}/${cleanCid}`);
   return { visited, contents: [], currentPath };
 }
 
