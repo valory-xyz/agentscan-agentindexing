@@ -135,7 +135,7 @@ export const fetchAndTransformMetadata = async (
       );
 
       // Process package download in the background
-      if (metadataJson.packageHash) {
+      if (metadataJson.packageHash && configInfo.type === "component") {
         void processPackageDownload(metadataJson.packageHash, configInfo.id);
       }
 
@@ -205,13 +205,13 @@ async function processMetadataEmbedding(
       const embedding = await generateEmbeddingWithRetry(metadataString);
 
       if (!embedding) {
-        throw new Error("metadata embedding generation failed");
+        throw new Error("Failed to generate embedding");
       }
 
       await storeEmbedding(id, embedding, metadataString, configInfo);
     });
   } catch (error) {
-    console.error("metadata embedding storage failed:", error);
+    console.error("Failed to process metadata embedding:", error);
   }
 }
 
