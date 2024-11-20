@@ -107,6 +107,23 @@ async function updateComponentStatus(
   });
 }
 
+// Add new helper function to check if component is already processed
+async function isComponentCompleted(componentId: string): Promise<boolean> {
+  const result = await dbQueue.add(async () => {
+    return await executeQuery(async (client) => {
+      const response = await client.query(
+        `SELECT status 
+         FROM component_processing_status 
+         WHERE component_id = $1 
+         AND status = $2`,
+        [componentId, ProcessingStatus.COMPLETED]
+      );
+      return response.rows.length > 0;
+    });
+  });
+
+  return result || false;
+}
 // Add a helper function for safe error handling
 async function safeDownload(
   ipfsHash: string,
@@ -140,6 +157,12 @@ export async function recursiveDownload(
   componentId: string
 ): Promise<void> {
   try {
+    // Check if component is already completed
+    const isCompleted = await isComponentCompleted(componentId);
+    if (isCompleted) {
+      console.log(`Component ${componentId} already processed, skipping`);
+      return;
+    }
     await updateComponentStatus(componentId, ProcessingStatus.PROCESSING);
     await safeDownload(ipfsHash, componentId, retryAttempts);
     await updateComponentStatus(componentId, ProcessingStatus.COMPLETED);
