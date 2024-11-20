@@ -468,11 +468,12 @@ interface VisitedNodes {
 }
 
 function isIPFSDirectory(item: any): boolean {
-  // Debug logging
-  console.log(`Checking directory type for ${item.name}:`, {
-    size: item.size,
-    hash: item.hash,
-  });
+  // Add null check for item and item.name
+  if (!item || !item.name) {
+    console.log("Warning: Invalid item or missing name:", item);
+    return false;
+  }
+  console.log("Checking directory type for", item.name, ":", item);
 
   // If size is very small (like 0-2 bytes) or relatively large and ends with '/'
   // it's likely a directory
@@ -488,7 +489,7 @@ function isIPFSDirectory(item: any): boolean {
 
   // If the hash starts with 'Qm' and the size is suspiciously small,
   // it's probably a directory
-  if (item.hash.startsWith("Qm") && item.size < 100) {
+  if (item.hash?.startsWith("Qm") && item.size < 100) {
     return true;
   }
 
