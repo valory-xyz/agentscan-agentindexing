@@ -626,11 +626,18 @@ async function traverseDAG(
                 );
 
                 await dbQueue.add(async () => {
-                  await processCodeContent(
-                    componentId,
-                    newPath,
-                    cleanedCodeContent
-                  );
+                  try {
+                    await processCodeContent(
+                      componentId,
+                      newPath,
+                      cleanedCodeContent
+                    );
+                  } catch (error) {
+                    console.error(
+                      `Failed to process code content ${newPath}:`,
+                      error
+                    );
+                  }
                 });
 
                 // Update status to completed
