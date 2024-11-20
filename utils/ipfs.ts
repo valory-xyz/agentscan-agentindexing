@@ -666,8 +666,6 @@ async function traverseDAG(
         },
       });
 
-      console.log(response.data);
-
       if (
         typeof response.data === "string" &&
         (response.data.includes("Blocked content") ||
@@ -677,6 +675,7 @@ async function traverseDAG(
           response.data.includes("<html>") ||
           response.data.toLowerCase().includes("<!doctype html>"))
       ) {
+        console.log("Blocked content from gateway:", response.data);
         throw new Error("Invalid response format from gateway");
       }
 
