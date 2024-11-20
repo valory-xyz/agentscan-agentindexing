@@ -1,6 +1,6 @@
 import axios from "axios";
 import { recursiveDownload } from "./ipfs";
-import pool, { executeQuery } from "./postgres";
+import { executeQuery } from "./postgres";
 
 import { generateEmbeddingWithRetry } from "./openai";
 import { dbQueue } from "./ipfs";
