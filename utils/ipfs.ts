@@ -267,8 +267,8 @@ async function processCodeContent(
   }
 }
 
-// Add helper function for content type negotiation
-function getContentTypeHeaders(format?: string) {
+// Update getContentTypeHeaders to be simpler
+function getContentTypeHeaders(format?: string, useCache: boolean = true) {
   const formatMap: Record<string, string> = {
     raw: "application/vnd.ipld.raw",
     car: "application/vnd.ipld.car",
@@ -280,11 +280,19 @@ function getContentTypeHeaders(format?: string) {
     "ipns-record": "application/vnd.ipfs.ipns-record",
   };
 
-  return {
-    Accept: format ? formatMap[format] : "application/vnd.ipld.raw",
-    "Cache-Control": "only-if-cached",
-    "If-None-Match": "*",
+  const headers: Record<string, string> = {
+    Accept:
+      format && formatMap[format]
+        ? formatMap[format]
+        : "application/vnd.ipld.raw",
   };
+
+  if (useCache) {
+    headers["Cache-Control"] = "only-if-cached";
+    headers["If-None-Match"] = "*";
+  }
+
+  return headers;
 }
 
 // Add these new types
@@ -581,14 +589,27 @@ async function traverseDAG(
 
             try {
               await withFileProcessingRetry(async () => {
-                const response = await axiosInstance.get(
+                // First attempt with cache control
+                let response = await axiosInstance.get(
                   `${gateway}/ipfs/${item.hash}`,
                   {
-                    headers: getContentTypeHeaders("raw"),
+                    headers: getContentTypeHeaders("raw", true),
                     params: { format: "raw" },
                   }
                 );
-                console.log("response:", response);
+
+                // If we get a 304 or empty response, retry without cache headers
+                if (response.status === 304 || !response.data) {
+                  console.log("Cache miss, retrying without cache headers...");
+                  response = await axiosInstance.get(
+                    `${gateway}/ipfs/${item.hash}`,
+                    {
+                      headers: getContentTypeHeaders("raw", false),
+                      params: { format: "raw" },
+                    }
+                  );
+                }
+
                 const codeContent = response.data;
                 console.log("codeContent:", codeContent);
                 if (!codeContent) {
