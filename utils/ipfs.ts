@@ -691,6 +691,7 @@ async function traverseDAG(
                       `Failed to process code content ${newPath}:`,
                       error
                     );
+                    throw error;
                   }
                 });
 
