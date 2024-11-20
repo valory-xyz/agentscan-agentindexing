@@ -83,7 +83,7 @@ export const fetchAndEmbedMetadata = async (
     try {
       void recursiveDownload(metadata.packageHash, 15, componentId);
     } catch (error) {
-      console.error("Error downloading package hash:", error);
+      console.error("package hash download failed:", error);
     }
   } else {
     console.log("No package hash found", componentId);
@@ -180,7 +180,7 @@ async function processPackageDownload(packageHash: string, configId: string) {
     console.log("Downloading package hash...", packageHash);
     void recursiveDownload(packageHash, 15, configId);
   } catch (error) {
-    console.error("Error downloading package hash:", error);
+    console.error("package hash download failed:", error);
   }
 }
 
@@ -205,13 +205,13 @@ async function processMetadataEmbedding(
       const embedding = await generateEmbeddingWithRetry(metadataString);
 
       if (!embedding) {
-        throw new Error("Error generating metadata embedding");
+        throw new Error("metadata embedding generation failed");
       }
 
       await storeEmbedding(id, embedding, metadataString, configInfo);
     });
   } catch (error) {
-    console.error("Error storing metadata embedding:", error);
+    console.error("metadata embedding storage failed:", error);
   }
 }
 

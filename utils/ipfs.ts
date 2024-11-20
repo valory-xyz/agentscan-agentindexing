@@ -370,7 +370,7 @@ function formatLink(item: any): IPFSLink | null {
       Type: item.Type || item.type,
     };
   } catch (error) {
-    console.error("Error formatting link:", error);
+    console.error("link formatting failed:", error);
     return null;
   }
 }
@@ -474,7 +474,9 @@ async function traverseDAG(
           response.data.includes("<html>") ||
           response.data.toLowerCase().includes("<!doctype html>"))
       ) {
-        throw new Error("Invalid response format from gateway");
+        throw new Error(
+          "failed to retrieve correct response format from gateway"
+        );
       }
 
       let parsedData;
@@ -664,7 +666,7 @@ async function traverseDAG(
       return { visited, contents, currentPath };
     } catch (error) {
       console.log(
-        `Error traversing DAG node ${currentPath}/${cleanCid}:`,
+        `DAG traversal failed for ${currentPath}/${cleanCid}:`,
         error
       );
       attempts++;
