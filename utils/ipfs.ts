@@ -330,29 +330,90 @@ interface VisitedNodes {
   [cid: string]: VisitedNode;
 }
 
-function isIPFSDirectory(item: any): boolean {
-  // Add null check for item and item.name
-  if (!item || !item.name) {
-    console.log("Warning: Invalid item or missing name:", item);
+// Update interface to handle different hash formats
+interface IPFSLink {
+  Name: string;
+  Hash: {
+    [key: string]: string; // Allow for different hash keys
+  };
+  Size?: number;
+  Tsize?: number;
+  Type?: number | string;
+}
+
+function formatLink(item: any): IPFSLink | null {
+  try {
+    // Ensure required properties exist
+    if (!item || typeof item !== "object") {
+      console.warn("Invalid link item:", item);
+      return null;
+    }
+
+    // Normalize the name property
+    const name = item.Name || item.name;
+    if (!name || typeof name !== "string") {
+      console.warn("Invalid or missing name in link:", item);
+      return null;
+    }
+
+    // Normalize the hash property
+    let hash = item.Hash;
+    if (typeof hash === "string") {
+      // If hash is a string, create an object with a default key
+      hash = { "/": hash };
+    } else if (hash && typeof hash === "object") {
+      // If hash is an object, ensure it has at least one key with a string value
+      const hasValidHashKey = Object.entries(hash).some(
+        ([_, value]) => typeof value === "string"
+      );
+      if (!hasValidHashKey) {
+        console.warn("Invalid hash format in link:", item);
+        return null;
+      }
+    } else {
+      console.warn("Invalid hash format in link:", item);
+      return null;
+    }
+
+    // Return formatted link
+    return {
+      Name: name,
+      Hash: hash,
+      Size: item.Size || item.size,
+      Tsize: item.Tsize,
+      Type: item.Type || item.type,
+    };
+  } catch (error) {
+    console.error("Error formatting link:", error);
+    return null;
+  }
+}
+
+function isIPFSDirectory(rawItem: any): boolean {
+  const item = formatLink(rawItem);
+  if (!item) {
+    console.warn("Invalid link format:", rawItem);
     return false;
   }
-  console.log("Checking directory type for", item.name, ":", item);
 
-  // If size is very small (like 0-2 bytes) or relatively large and ends with '/'
-  // it's likely a directory
-  if (item.name.endsWith("/")) {
+  // Check for Tsize property (common in directory entries)
+  if (item.Tsize !== undefined) {
     return true;
   }
 
-  // Some IPFS directories have very specific sizes
-  // You might need to adjust these values based on your observations
-  if (item.size === 0 || item.size === 2 || item.size === 4) {
+  // Now we can safely check other properties
+  if (item.Name.endsWith("/")) {
     return true;
   }
 
-  // If the hash starts with 'Qm' and the size is suspiciously small,
-  // it's probably a directory
-  if (item.hash?.startsWith("Qm") && item.size < 100) {
+  // Check for directory-like sizes
+  if (item.Size === 0 || item.Size === 2 || item.Size === 4) {
+    return true;
+  }
+
+  // Check for Qm prefix with small size
+  const hashValue = Object.values(item.Hash)[0];
+  if (hashValue?.startsWith("Qm") && (item.Size || 0) < 100) {
     return true;
   }
 
