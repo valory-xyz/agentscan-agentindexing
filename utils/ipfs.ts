@@ -550,6 +550,7 @@ async function traverseDAG(
           type: item.Type,
           isDirectory: item.Type === 1 || item.Type === "dir",
         }));
+        console.log("Contents for", cleanCid, ":", contents);
 
         // Determine category for root level
         if (!currentPath) {
