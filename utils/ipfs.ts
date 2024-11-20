@@ -90,18 +90,8 @@ async function safeDownload(
   attempts = 0
 ): Promise<void> {
   try {
-    // Set initial pending status
-    await updateProcessingStatus(componentId, "root", ProcessingStatus.PENDING);
-
     console.log(`Starting safe download for hash: ${ipfsHash}`);
     await traverseDAG(ipfsHash, componentId, "", {}, 25);
-
-    // Update root status to completed
-    await updateProcessingStatus(
-      componentId,
-      "root",
-      ProcessingStatus.COMPLETED
-    );
   } catch (error: any) {
     console.error(`Safe download failed for ${ipfsHash}:`, error);
 
@@ -113,13 +103,6 @@ async function safeDownload(
         attempts + 1
       );
     } else {
-      // Update root status to failed
-      await updateProcessingStatus(
-        componentId,
-        "root",
-        ProcessingStatus.FAILED,
-        `DAG traversal failed: ${error.message}`
-      );
       return;
     }
   }
@@ -459,15 +442,6 @@ async function traverseDAG(
 }> {
   const cleanCid = cid.replace(/^https:\/\/[^/]+\/ipfs\//, "");
   let attempts = 0;
-
-  // Check if already visited recently (within last hour)
-  if (
-    visited[cleanCid] &&
-    visited[cleanCid].processed &&
-    Date.now() - visited[cleanCid].timestamp < 3600000
-  ) {
-    return { visited, contents: [], currentPath };
-  }
 
   while (attempts < maxRetries) {
     const gateway = getNextGateway();
