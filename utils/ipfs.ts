@@ -582,6 +582,7 @@ async function traverseDAG(
           } else if (
             item.name.endsWith(".py") ||
             item.name.endsWith(".proto") ||
+            item.name.endsWith(".yaml") ||
             item.name.toLowerCase() === "readme.md"
           ) {
             console.log("Processing file", item.hash, "at", newPath);
