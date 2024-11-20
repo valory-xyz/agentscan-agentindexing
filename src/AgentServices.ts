@@ -1,5 +1,4 @@
 import { ponder } from "@/generated";
-import { memoize, MemoizedFunction } from "lodash";
 
 import {
   Service,
@@ -18,48 +17,28 @@ import {
   getChainName,
 } from "../utils";
 
-// Add cache invalidation timeout
-const CACHE_TIMEOUT = 1000 * 60 * 5; // 5 minutes
+// Replace memoized functions with direct calls
+async function fetchMetadata(
+  hash: string,
+  id: string,
+  type: "component" | "service" | "agent"
+) {
+  try {
+    return await fetchAndTransformMetadata(hash, 3, { type, id });
+  } catch (error) {
+    console.error(`Metadata fetch failed for ${type} ${id}:`, error);
+    return null;
+  }
+}
 
-// Update memoization with cache timeout and error handling
-const memoizedFetchMetadata = memoize(
-  async (hash: string, id: string, type: "component" | "service" | "agent") => {
-    try {
-      const result = await fetchAndTransformMetadata(hash, 3, { type, id });
-      return result;
-    } catch (error) {
-      console.error(`Metadata fetch failed for ${type} ${id}:`, error);
-      return null;
-    }
-  },
-  (hash: string, id: string, type: string) => `${hash}-${id}-${type}`
-);
-
-// Add cache clearing mechanism
-const clearMemoizationCache = () => {
-  (memoizedFetchMetadata as MemoizedFunction).cache?.clear?.();
-  (memoizedFetchAndEmbedMetadata as MemoizedFunction).cache?.clear?.();
-};
-
-// Set up periodic cache clearing
-setInterval(clearMemoizationCache, CACHE_TIMEOUT);
-
-// Update the memoized fetch and embed with better error handling
-const memoizedFetchAndEmbedMetadata = memoize(
-  async (hash: string, componentId: string) => {
-    try {
-      const result = await fetchAndEmbedMetadata(hash, 3, componentId);
-      return result;
-    } catch (error) {
-      console.error(
-        `Metadata embed failed for component ${componentId}:`,
-        error
-      );
-      return null;
-    }
-  },
-  (hash: string, componentId: string) => `${hash}-${componentId}`
-);
+async function fetchAndEmbedMetadataWrapper(hash: string, componentId: string) {
+  try {
+    return await fetchAndEmbedMetadata(hash, 10, componentId);
+  } catch (error) {
+    console.error(`Metadata embed failed for component ${componentId}:`, error);
+    return null;
+  }
+}
 
 // Add error boundary wrapper for database operations
 async function withErrorBoundary<T>(
@@ -70,8 +49,6 @@ async function withErrorBoundary<T>(
     return await operation();
   } catch (error) {
     console.error(`Error in ${errorContext}:`, error);
-    // Clear cache on error to prevent stale data
-    clearMemoizationCache();
     return null;
   }
 }
@@ -82,7 +59,7 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
 
   await withErrorBoundary(async () => {
     const [metadataJson, existingAgent] = await Promise.all([
-      memoizedFetchMetadata(event.args.unitHash, agentId, "agent"),
+      fetchMetadata(event.args.unitHash, agentId, "agent"),
       context.db.find(Agent, { id: agentId }),
     ]);
 
@@ -186,7 +163,7 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
 
   // Use memoized fetch and parallel processing
   const [metadataJson, existingComponent] = await Promise.all([
-    memoizedFetchAndEmbedMetadata(event.args.unitHash, componentId),
+    fetchAndEmbedMetadataWrapper(event.args.unitHash, componentId),
     context.db.find(Component, { id: componentId }),
   ]);
 
@@ -291,7 +268,7 @@ ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
 // Add UpdateUnitHash handler for AgentRegistry
 ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
-  const metadataJson = await memoizedFetchMetadata(
+  const metadataJson = await fetchMetadata(
     event.args.unitHash,
     agentId,
     "agent"
@@ -316,7 +293,7 @@ ponder.on(
   `MainnetComponentRegistry:UpdateUnitHash`,
   async ({ event, context }) => {
     const componentId = event.args.unitId.toString();
-    const metadataJson = await memoizedFetchMetadata(
+    const metadataJson = await fetchMetadata(
       event.args.unitHash,
       componentId,
       "component"
@@ -345,7 +322,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     const cleanServiceId = serviceId.replace(/^service-/, "");
     const chainScopedId = createChainScopedId(chain, cleanServiceId);
 
-    const metadataJson = await memoizedFetchMetadata(
+    const metadataJson = await fetchMetadata(
       event.args.configHash,
       chainScopedId,
       "service"
@@ -481,7 +458,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString()
     );
-    const metadataJson = await memoizedFetchMetadata(
+    const metadataJson = await fetchMetadata(
       event.args.configHash,
       serviceId,
       "service"
