@@ -63,7 +63,7 @@ async function determineCategory(contents: any[]): Promise<string | null> {
 // Create a queue for database operations
 export const dbQueue = new pQueue({
   concurrency: 5,
-  timeout: 60000, // 1 minute timeout
+  timeout: 120000, // 120 second timeout
   throwOnTimeout: true,
 }).on("error", async (error) => {
   console.log(`Database operation failed: ${error.message}`);
