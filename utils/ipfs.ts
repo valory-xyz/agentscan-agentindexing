@@ -82,6 +82,31 @@ async function safeQueueOperation<T>(
   }
 }
 
+// Add new helper function for component status updates
+async function updateComponentStatus(
+  componentId: string,
+  status: ProcessingStatus,
+  errorMessage?: string
+): Promise<void> {
+  await dbQueue.add(async () => {
+    await executeQuery(async (client) => {
+      await client.query(
+        `INSERT INTO component_processing_status (
+          component_id,
+          status,
+          error_message,
+          updated_at
+        ) VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (component_id) DO UPDATE SET
+          status = EXCLUDED.status,
+          error_message = EXCLUDED.error_message,
+          updated_at = NOW()`,
+        [componentId, status, errorMessage || null]
+      );
+    });
+  });
+}
+
 // Add a helper function for safe error handling
 async function safeDownload(
   ipfsHash: string,
@@ -115,9 +140,13 @@ export async function recursiveDownload(
   componentId: string
 ): Promise<void> {
   try {
-    return await safeDownload(ipfsHash, componentId, retryAttempts);
+    await updateComponentStatus(componentId, ProcessingStatus.PROCESSING);
+    await safeDownload(ipfsHash, componentId, retryAttempts);
+    await updateComponentStatus(componentId, ProcessingStatus.COMPLETED);
+    return;
   } catch (error) {
     console.error(`Failed to download ${ipfsHash}:`, error);
+    await updateComponentStatus(componentId, ProcessingStatus.FAILED);
   }
 }
 

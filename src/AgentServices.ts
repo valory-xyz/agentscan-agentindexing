@@ -1,5 +1,5 @@
 import { ponder } from "@/generated";
-import { memoize } from "lodash";
+import { memoize, MemoizedFunction } from "lodash";
 
 import {
   Service,
@@ -18,28 +18,79 @@ import {
   getChainName,
 } from "../utils";
 
-// Memoize the metadata fetching to prevent duplicate requests
+// Add cache invalidation timeout
+const CACHE_TIMEOUT = 1000 * 60 * 5; // 5 minutes
+
+// Update memoization with cache timeout and error handling
 const memoizedFetchMetadata = memoize(
-  (hash: string, id: string, type: "component" | "service" | "agent") =>
-    fetchAndTransformMetadata(hash, 3, { type, id }),
-  (hash: string, id: string, type: "component" | "service" | "agent") =>
-    `${hash}-${id}-${type}`
+  async (hash: string, id: string, type: "component" | "service" | "agent") => {
+    try {
+      const result = await fetchAndTransformMetadata(hash, 3, { type, id });
+      return result;
+    } catch (error) {
+      console.error(`Metadata fetch failed for ${type} ${id}:`, error);
+      return null;
+    }
+  },
+  (hash: string, id: string, type: string) => `${hash}-${id}-${type}`
 );
 
+// Add cache clearing mechanism
+const clearMemoizationCache = () => {
+  (memoizedFetchMetadata as MemoizedFunction).cache?.clear?.();
+  (memoizedFetchAndEmbedMetadata as MemoizedFunction).cache?.clear?.();
+};
+
+// Set up periodic cache clearing
+setInterval(clearMemoizationCache, CACHE_TIMEOUT);
+
+// Update the memoized fetch and embed with better error handling
 const memoizedFetchAndEmbedMetadata = memoize(
-  (hash: string, componentId: string) =>
-    fetchAndEmbedMetadata(hash, 3, componentId),
+  async (hash: string, componentId: string) => {
+    try {
+      const result = await fetchAndEmbedMetadata(hash, 3, componentId);
+      return result;
+    } catch (error) {
+      console.error(
+        `Metadata embed failed for component ${componentId}:`,
+        error
+      );
+      return null;
+    }
+  },
   (hash: string, componentId: string) => `${hash}-${componentId}`
 );
 
+// Add error boundary wrapper for database operations
+async function withErrorBoundary<T>(
+  operation: () => Promise<T>,
+  errorContext: string
+): Promise<T | null> {
+  try {
+    return await operation();
+  } catch (error) {
+    console.error(`Error in ${errorContext}:`, error);
+    // Clear cache on error to prevent stale data
+    clearMemoizationCache();
+    return null;
+  }
+}
+
+// Update the CreateUnit handler with error boundary
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
-  const [metadataJson, existingAgent] = await Promise.all([
-    memoizedFetchMetadata(event.args.unitHash, agentId, "agent"),
-    context.db.find(Agent, { id: agentId }),
-  ]);
 
-  try {
+  return withErrorBoundary(async () => {
+    const [metadataJson, existingAgent] = await Promise.all([
+      memoizedFetchMetadata(event.args.unitHash, agentId, "agent"),
+      context.db.find(Agent, { id: agentId }),
+    ]);
+
+    if (!metadataJson) {
+      console.warn(`No metadata found for agent ${agentId}`);
+      return;
+    }
+
     if (existingAgent) {
       await context.db.update(Agent, { id: agentId }).set({
         metadata: metadataJson,
@@ -62,10 +113,10 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
         metadataURI: metadataJson?.metadataURI,
       });
     }
-    //call
+
+    // Process dependencies with error handling
     try {
       const { client } = context;
-      //      ^? ReadonlyClient<"mainnet">
       const { MainnetAgentRegistry } = context.contracts;
       const dependencies = await client.readContract({
         abi: MainnetAgentRegistry.abi,
@@ -74,31 +125,27 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
         args: [event.args.unitId],
       });
 
-      if (
-        dependencies &&
-        Array.isArray(dependencies) &&
-        dependencies.length === 2
-      ) {
-        const dependencyArray = dependencies[1];
-        if (Array.isArray(dependencyArray) && dependencyArray.length > 0) {
-          const validDependencies = dependencyArray
-            .map((dep) => dep.toString())
-            .filter((dep) => dep !== "")
-            .map((dependency) => ({
-              id: `${agentId}-${dependency}`,
-              agentId,
-              componentId: dependency,
-            }));
+      if (dependencies?.[1]?.length > 0) {
+        const validDependencies = dependencies[1]
+          .map((dep) => dep.toString())
+          .filter((dep) => dep !== "")
+          .map((dependency) => ({
+            id: `${agentId}-${dependency}`,
+            agentId,
+            componentId: dependency,
+          }));
 
-          if (validDependencies.length > 0) {
-            await context.db.insert(ComponentAgent).values(validDependencies);
-          }
+        if (validDependencies.length > 0) {
+          await context.db.insert(ComponentAgent).values(validDependencies);
         }
       }
-    } catch (e) {
-      // console.log("error processing dependencies:", e);
+    } catch (error) {
+      console.error(
+        `Failed to process dependencies for agent ${agentId}:`,
+        error
+      );
     }
-  } catch (e) {}
+  }, `AgentRegistry:CreateUnit for ${agentId}`);
 });
 
 ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
