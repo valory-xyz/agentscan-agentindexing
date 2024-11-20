@@ -396,33 +396,8 @@ function isIPFSDirectory(rawItem: any): boolean {
     return false;
   }
 
-  // Check file extensions that we know are not directories
-  const nonDirectoryExtensions = [".py", ".yaml", ".md", ".proto"];
-  if (nonDirectoryExtensions.some((ext) => item.Name.endsWith(ext))) {
-    return false;
-  }
-
-  // Check for Tsize property (common in directory entries)
-  if (item.Tsize !== undefined) {
-    return true;
-  }
-
-  // Check for explicit directory markers
-  if (item.Name.endsWith("/")) {
-    return true;
-  }
-
-  // Check for directory-like sizes
-  if (item.Size === 0 || item.Size === 2 || item.Size === 4) {
-    return true;
-  }
-
-  // Check for explicit directory type if available
-  if (item.Type === 1 || item.Type === "directory") {
-    return true;
-  }
-
-  return false;
+  // If it has a file name with an extension, it's not a directory
+  return !item.Name.includes(".");
 }
 
 async function traverseDAG(
