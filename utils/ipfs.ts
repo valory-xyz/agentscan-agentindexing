@@ -588,7 +588,7 @@ async function traverseDAG(
                     params: { format: "raw" },
                   }
                 );
-
+                console.log("response:", response);
                 const codeContent = response.data;
                 console.log("codeContent:", codeContent);
                 if (!codeContent) {
