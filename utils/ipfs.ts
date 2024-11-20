@@ -558,6 +558,14 @@ async function traverseDAG(
           const newPath = currentPath
             ? path.join(currentPath, item.name)
             : item.name;
+          //check if the file is in code_embeddings
+          const fileInCodeEmbeddings = await executeQuery(async (client) => {
+            const result = await client.query(
+              `SELECT 1 FROM code_embeddings WHERE file_path = $1 AND component_id = $2`,
+              [newPath, componentId]
+            );
+            return result.rows.length > 0;
+          });
 
           if (item.isDirectory) {
             // Skip tests directory
@@ -587,7 +595,13 @@ async function traverseDAG(
           ) {
             console.log("Processing file", item.hash, "at", newPath);
             console.log("url:", `${gateway}/ipfs/${item.hash}`);
-
+            //if the file is in code_embeddings, skip the file
+            if (fileInCodeEmbeddings) {
+              console.log(
+                `Skipping file ${newPath} as it is already processed`
+              );
+              continue;
+            }
             try {
               await withFileProcessingRetry(async () => {
                 // First attempt with cache control
