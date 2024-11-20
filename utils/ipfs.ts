@@ -221,13 +221,13 @@ async function processCodeContent(
   componentId: string,
   relativePath: string,
   cleanedCodeContent: string
-): Promise<void> {
+): Promise<boolean> {
   try {
     const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
 
     if (!Array.isArray(embeddings) || embeddings.length === 1) {
-      await safeQueueOperation(async () => {
-        await dbQueue.add(
+      const result = await safeQueueOperation(async () => {
+        return await dbQueue.add(
           async () => {
             await executeQuery(async (client) => {
               await client.query(
@@ -249,13 +249,12 @@ async function processCodeContent(
             });
           },
           { timeout: 30000 }
-        ); // Add timeout per operation
+        );
       });
+      return result !== null;
     } else {
       const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
-
-      // Process chunks in parallel with individual error handling
-      await Promise.allSettled(
+      const results = await Promise.allSettled(
         chunks.map((chunk, i) =>
           safeQueueOperation(async () => {
             const chunkPath = getChunkFileName(
@@ -263,7 +262,7 @@ async function processCodeContent(
               i,
               embeddings.length
             );
-            await dbQueue.add(
+            return await dbQueue.add(
               async () => {
                 await executeQuery(async (client) => {
                   await client.query(
@@ -294,13 +293,19 @@ async function processCodeContent(
                 });
               },
               { timeout: 30000 }
-            ); // Add timeout per operation
+            );
           })
         )
+      );
+
+      // Check if all chunks were processed successfully
+      return results.every(
+        (result) => result.status === "fulfilled" && result.value !== null
       );
     }
   } catch (error) {
     console.error(`Failed to process code content for ${relativePath}:`, error);
+    return false;
   }
 }
 
@@ -681,26 +686,39 @@ async function traverseDAG(
 
                 await dbQueue.add(async () => {
                   try {
-                    await processCodeContent(
+                    const result = await processCodeContent(
                       componentId,
                       newPath,
                       cleanedCodeContent
                     );
+                    // Update status to completed
+                    if (result) {
+                      await updateProcessingStatus(
+                        componentId,
+                        newPath,
+                        ProcessingStatus.COMPLETED
+                      );
+                    } else {
+                      await updateProcessingStatus(
+                        componentId,
+                        newPath,
+                        ProcessingStatus.FAILED,
+                        "Failed to process code content"
+                      );
+                    }
                   } catch (error) {
                     console.error(
                       `Failed to process code content ${newPath}:`,
                       error
                     );
-                    throw error;
+                    await updateProcessingStatus(
+                      componentId,
+                      newPath,
+                      ProcessingStatus.FAILED,
+                      "Failed to process code content"
+                    );
                   }
                 });
-
-                // Update status to completed
-                await updateProcessingStatus(
-                  componentId,
-                  newPath,
-                  ProcessingStatus.COMPLETED
-                );
               }, item.name);
             } catch (error: any) {
               console.error(`Failed to process file ${newPath}:`, error);
