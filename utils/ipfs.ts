@@ -95,11 +95,7 @@ async function updateComponentStatus(
           status,
           error_message,
           updated_at
-        ) VALUES ($1, $2, $3, NOW())
-        ON CONFLICT (component_id) DO UPDATE SET
-          status = EXCLUDED.status,
-          error_message = EXCLUDED.error_message,
-          updated_at = NOW()`,
+        ) VALUES ($1, $2, $3, NOW())`,
         [componentId, status, errorMessage || null]
       );
     });
@@ -241,12 +237,7 @@ async function processCodeContent(
                 embedding,
                 created_at,
                 updated_at
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
-              ON CONFLICT (id, type, location) DO UPDATE SET
-                content = EXCLUDED.content,
-                name = EXCLUDED.name,
-                embedding = EXCLUDED.embedding,
-                updated_at = NOW()`,
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
               [
                 componentId,
                 "olas",
@@ -281,12 +272,7 @@ async function processCodeContent(
                     original_location,
                     created_at,
                     updated_at
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-                  ON CONFLICT (id, type, location) DO UPDATE SET
-                    content = EXCLUDED.content,
-                    name = EXCLUDED.name,
-                    embedding = EXCLUDED.embedding,
-                    updated_at = NOW()`,
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
                   [
                     componentId,
                     "olas",
@@ -764,7 +750,20 @@ async function updateProcessingStatus(
 ): Promise<void> {
   await dbQueue.add(async () => {
     await executeQuery(async (client) => {
-      if (status === ProcessingStatus.COMPLETED) {
+      // First try to update existing record
+      const updateResult = await client.query(
+        `UPDATE context_processing_status 
+         SET status = $1,
+             error_message = $2,
+             updated_at = NOW()
+         WHERE id = $3 
+         AND type = $4 
+         AND location = $5`,
+        [status, errorMessage || null, componentId, "component", location]
+      );
+
+      // If no row was updated, insert a new one
+      if (updateResult.rowCount === 0) {
         const fileName = path.basename(location);
         await client.query(
           `INSERT INTO context_processing_status (
@@ -775,13 +774,9 @@ async function updateProcessingStatus(
             name,
             status,
             error_message,
+            created_at,
             updated_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-          ON CONFLICT (id, type, location) DO UPDATE SET
-            name = EXCLUDED.name,
-            status = EXCLUDED.status,
-            error_message = EXCLUDED.error_message,
-            updated_at = NOW()`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
           [
             componentId,
             "olas",
@@ -791,22 +786,6 @@ async function updateProcessingStatus(
             status,
             errorMessage || null,
           ]
-        );
-      } else {
-        await client.query(
-          `INSERT INTO context_processing_status (
-            id,
-            company_id,
-            type,
-            status,
-            error_message,
-            updated_at
-          ) VALUES ($1, $2, $3, $4, $5, NOW())
-          ON CONFLICT (id, type) DO UPDATE SET
-            status = EXCLUDED.status,
-            error_message = EXCLUDED.error_message,
-            updated_at = NOW()`,
-          [componentId, "olas", "component", status, errorMessage || null]
         );
       }
     });
