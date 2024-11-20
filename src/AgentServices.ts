@@ -80,7 +80,7 @@ async function withErrorBoundary<T>(
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
 
-  return withErrorBoundary(async () => {
+  await withErrorBoundary(async () => {
     const [metadataJson, existingAgent] = await Promise.all([
       memoizedFetchMetadata(event.args.unitHash, agentId, "agent"),
       context.db.find(Agent, { id: agentId }),
