@@ -558,6 +558,7 @@ async function traverseDAG(
           if (category) {
             currentPath = category;
           }
+          console.log("Current path for", cleanCid, "set to:", currentPath);
         }
 
         // Process each item
