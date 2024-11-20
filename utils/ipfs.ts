@@ -634,8 +634,8 @@ async function traverseDAG(
             // Check existing status
             const existingStatus = await executeQuery(async (client) => {
               const result = await client.query(
-                `SELECT status FROM code_processing_status 
-                 WHERE component_id = $1 AND file_path = $2`,
+                `SELECT status FROM context_processing_status 
+                 WHERE id = $1 AND location = $2`,
                 [componentId, newPath]
               );
               return result.rows[0]?.status;
