@@ -193,7 +193,8 @@ async function processCodeContent(
 ): Promise<void> {
   try {
     const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
-    console.log("Embeddings:", embeddings);
+
+    console.log("cleanedCodeContent:", cleanedCodeContent);
 
     if (!Array.isArray(embeddings) || embeddings.length === 1) {
       await safeQueueOperation(async () => {
@@ -547,25 +548,26 @@ async function traverseDAG(
                   {
                     headers: getContentTypeHeaders("raw"),
                     params: { format: "raw" },
+                    responseType: "text",
                   }
                 );
 
                 const codeContent = response.data;
-                const cleanedCodeContent = codeContent.replace(/[\r\n]/g, " ");
+                if (!codeContent) {
+                  console.warn(`Empty content received for ${item.hash}`);
+                  return;
+                }
 
-                // Create the directory if it doesn't exist
-                const outputDir = path.join("./downloads", currentPath);
-                await fs.mkdir(outputDir, { recursive: true });
+                const cleanedCodeContent =
+                  typeof codeContent === "string"
+                    ? codeContent.replace(/[\r\n]/g, " ")
+                    : String(codeContent).replace(/[\r\n]/g, " ");
 
-                // Write the file
-                const sanitizedFileName = item.name.replace(
-                  /[<>:"/\\|?*]/g,
-                  "_"
+                console.log(
+                  `Content length for ${item.name}: ${cleanedCodeContent.length}`
                 );
-                const outputPath = path.join(outputDir, sanitizedFileName);
-                await fs.writeFile(outputPath, codeContent);
 
-                // Process the content for embeddings
+                // Process the content for embeddings directly
                 await processCodeContent(
                   componentId,
                   path.join(currentPath, item.name),
