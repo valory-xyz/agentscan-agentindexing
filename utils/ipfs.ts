@@ -1,6 +1,4 @@
 import axios from "axios";
-import fs from "fs/promises";
-import fsSync from "fs";
 import path from "path";
 import {
   generateEmbeddingWithRetry,
@@ -32,6 +30,7 @@ function getNextGateway(): string {
 
 // Simplify the status enum
 enum ProcessingStatus {
+  PENDING = "pending",
   PROCESSING = "processing",
   COMPLETED = "completed",
   FAILED = "failed",
@@ -91,9 +90,18 @@ async function safeDownload(
   attempts = 0
 ): Promise<void> {
   try {
-    console.log(`Starting safe download for hash: ${ipfsHash}`);
+    // Set initial pending status
+    await updateProcessingStatus(componentId, "root", ProcessingStatus.PENDING);
 
+    console.log(`Starting safe download for hash: ${ipfsHash}`);
     await traverseDAG(ipfsHash, componentId, "", {}, 25);
+
+    // Update root status to completed
+    await updateProcessingStatus(
+      componentId,
+      "root",
+      ProcessingStatus.COMPLETED
+    );
   } catch (error: any) {
     console.error(`Safe download failed for ${ipfsHash}:`, error);
 
@@ -105,17 +113,13 @@ async function safeDownload(
         attempts + 1
       );
     } else {
-      // // Update status to failed
-      // await executeQuery(async (client) => {
-      //   await client.query(
-      //     `UPDATE code_processing_status SET status = $1, error_message = $2 WHERE component_id = $3`,
-      //     [
-      //       ProcessingStatus.FAILED,
-      //       `DAG traversal failed: ${error.message}`,
-      //       componentId,
-      //     ]
-      //   );
-      // });
+      // Update root status to failed
+      await updateProcessingStatus(
+        componentId,
+        "root",
+        ProcessingStatus.FAILED,
+        `DAG traversal failed: ${error.message}`
+      );
       return;
     }
   }
@@ -185,8 +189,6 @@ async function processCodeContent(
 ): Promise<void> {
   try {
     const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
-
-    console.log("cleanedCodeContent:", cleanedCodeContent);
 
     if (!Array.isArray(embeddings) || embeddings.length === 1) {
       await safeQueueOperation(async () => {
@@ -542,7 +544,6 @@ async function traverseDAG(
           size: item.Size || item.Tsize,
           isDirectory: isIPFSDirectory(item),
         }));
-        console.log("Contents for", cleanCid, ":", contents);
 
         // Determine category for root level
         if (!currentPath) {
@@ -593,15 +594,33 @@ async function traverseDAG(
             item.name.endsWith(".yaml") ||
             item.name.toLowerCase() === "readme.md"
           ) {
-            console.log("Processing file", item.hash, "at", newPath);
-            console.log("url:", `${gateway}/ipfs/${item.hash}`);
-            //if the file is in code_embeddings, skip the file
-            if (fileInCodeEmbeddings) {
+            const newPath = path.join(currentPath, item.name);
+
+            // Check existing status
+            const existingStatus = await executeQuery(async (client) => {
+              const result = await client.query(
+                `SELECT status FROM code_processing_status 
+                 WHERE component_id = $1 AND file_path = $2`,
+                [componentId, newPath]
+              );
+              return result.rows[0]?.status;
+            });
+
+            // Skip if already completed successfully
+            if (existingStatus === ProcessingStatus.COMPLETED) {
               console.log(
-                `Skipping file ${newPath} as it is already processed`
+                `Skipping ${newPath} - already processed successfully`
               );
               continue;
             }
+
+            // Update status to processing
+            await updateProcessingStatus(
+              componentId,
+              newPath,
+              ProcessingStatus.PROCESSING
+            );
+
             try {
               await withFileProcessingRetry(async () => {
                 // First attempt with cache control
@@ -626,7 +645,7 @@ async function traverseDAG(
                 }
 
                 const codeContent = response.data;
-                console.log("codeContent:", codeContent);
+
                 if (!codeContent) {
                   throw new Error(`Empty content received for ${item.hash}`);
                 }
@@ -643,15 +662,26 @@ async function traverseDAG(
                 await dbQueue.add(async () => {
                   await processCodeContent(
                     componentId,
-                    path.join(currentPath, item.name),
+                    newPath,
                     cleanedCodeContent
                   );
                 });
+
+                // Update status to completed
+                await updateProcessingStatus(
+                  componentId,
+                  newPath,
+                  ProcessingStatus.COMPLETED
+                );
               }, item.name);
-            } catch (error) {
-              console.error(
-                `Failed to process file ${newPath} after all retries:`,
-                error
+            } catch (error: any) {
+              console.error(`Failed to process file ${newPath}:`, error);
+              // Update status to failed
+              await updateProcessingStatus(
+                componentId,
+                newPath,
+                ProcessingStatus.FAILED,
+                error.message
               );
             }
           }
@@ -674,4 +704,31 @@ async function traverseDAG(
   }
 
   return { visited, contents: [], currentPath };
+}
+
+// Add helper function for status updates
+async function updateProcessingStatus(
+  componentId: string,
+  filePath: string,
+  status: ProcessingStatus,
+  errorMessage?: string
+): Promise<void> {
+  await dbQueue.add(async () => {
+    await executeQuery(async (client) => {
+      await client.query(
+        `INSERT INTO code_processing_status (
+          component_id,
+          file_path,
+          status,
+          error_message,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT (component_id, file_path) DO UPDATE SET
+          status = EXCLUDED.status,
+          error_message = EXCLUDED.error_message,
+          updated_at = NOW()`,
+        [componentId, filePath, status, errorMessage || null]
+      );
+    });
+  });
 }
