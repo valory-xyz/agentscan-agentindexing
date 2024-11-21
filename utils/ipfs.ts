@@ -199,22 +199,6 @@ export async function recursiveDownload(
 //   }
 // }
 
-// Add this helper function to handle file chunk naming
-function getChunkFileName(
-  originalPath: string,
-  chunkIndex: number,
-  totalChunks: number
-): string {
-  if (totalChunks <= 1) return originalPath;
-
-  const cleanPath = originalPath.replace(/^downloads\//, "");
-  const parsedPath = path.parse(cleanPath);
-  const directory = parsedPath.dir;
-  const newName = `${parsedPath.name}.part${chunkIndex + 1}of${totalChunks}`;
-
-  return path.join(directory, newName + parsedPath.ext);
-}
-
 // Update processCodeContent to use safer queue operations
 async function processCodeContent(
   componentId: string,
@@ -225,6 +209,7 @@ async function processCodeContent(
   try {
     const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
     const fileName = path.basename(relativePath);
+    console.log(`Processing ${fileName}`);
 
     if (!Array.isArray(embeddings) || embeddings.length === 1) {
       const promise = await safeQueueOperation(async () => {
@@ -259,6 +244,7 @@ async function processCodeContent(
               );
             }
           );
+          console.log(`Inserted ${fileName}`, result.rows[0]?.id);
           return result.rows.length > 0;
         });
       });
@@ -299,6 +285,10 @@ async function processCodeContent(
                     true,
                     ipfsUrl,
                   ]
+                );
+                console.log(
+                  `Inserted chunk ${i} of ${fileName}`,
+                  result.rows[0]?.id
                 );
                 return result.rows[0]?.id;
               });
@@ -564,6 +554,7 @@ async function traverseDAG(
         console.log("Failed to parse DAG response, treating as raw content");
         return { visited, contents: [], currentPath };
       }
+      console.log("Parsed DAG response for", cleanCid, parsedData);
 
       // Mark as visited with timestamp
       visited[cleanCid] = {
@@ -594,6 +585,7 @@ async function traverseDAG(
 
         // Process each item
         for (const item of contents) {
+          console.log("Processing item for", cleanCid, item);
           const newPath = currentPath
             ? path.join(currentPath, item.name)
             : item.name;
@@ -606,6 +598,7 @@ async function traverseDAG(
             }
 
             try {
+              console.log(`Traversing subdirectory ${newPath}`);
               const subDirResult = await traverseDAG(
                 item.hash,
                 componentId,
@@ -625,7 +618,7 @@ async function traverseDAG(
             item.name.toLowerCase() === "readme.md"
           ) {
             const newPath = path.join(currentPath, item.name);
-
+            console.log("Processing file for", cleanCid, item);
             // Check existing status
             const existingStatus = await executeQuery(async (client) => {
               const result = await client.query(
@@ -655,6 +648,7 @@ async function traverseDAG(
 
             try {
               await withFileProcessingRetry(async () => {
+                console.log("Getting file for", cleanCid, item);
                 // First attempt with cache control
                 let response = await axiosInstance.get(
                   `${gateway}/ipfs/${item.hash}`,
@@ -675,8 +669,6 @@ async function traverseDAG(
                     }
                   );
                 }
-
-                const codeContent = response.data;
 
                 if (!codeContent) {
                   throw new Error(`Empty content received for ${item.hash}`);
@@ -702,12 +694,14 @@ async function traverseDAG(
                     );
                     // Update status to completed
                     if (result) {
+                      console.log(`Updated status for ${newPath} to completed`);
                       await updateProcessingStatus(
                         componentId,
                         newPath,
                         ProcessingStatus.COMPLETED
                       );
                     } else {
+                      console.log(`Updated status for ${newPath} to failed`);
                       await updateProcessingStatus(
                         componentId,
                         newPath,
