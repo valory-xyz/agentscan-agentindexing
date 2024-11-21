@@ -645,11 +645,13 @@ async function traverseDAG(
             }
 
             // Update status to processing
-            await updateProcessingStatus(
-              componentId,
-              newPath,
-              ProcessingStatus.PROCESSING
-            );
+            if (existingStatus !== ProcessingStatus.PROCESSING) {
+              await updateProcessingStatus(
+                componentId,
+                newPath,
+                ProcessingStatus.PROCESSING
+              );
+            }
 
             try {
               await withFileProcessingRetry(async () => {
