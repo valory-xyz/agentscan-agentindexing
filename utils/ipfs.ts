@@ -153,18 +153,18 @@ export async function recursiveDownload(
 ): Promise<void> {
   try {
     // Check if component is already completed
-    // const isCompleted = await isComponentCompleted(componentId);
-    // if (isCompleted) {
-    //   console.log(`Component ${componentId} already processed, skipping`);
-    //   return;
-    // }
-    // await updateComponentStatus(componentId, ProcessingStatus.PROCESSING);
+    const isCompleted = await isComponentCompleted(componentId);
+    if (isCompleted) {
+      console.log(`Component ${componentId} already processed, skipping`);
+      return;
+    }
+    await updateComponentStatus(componentId, ProcessingStatus.PROCESSING);
     await safeDownload(ipfsHash, componentId, retryAttempts);
-    // await updateComponentStatus(componentId, ProcessingStatus.COMPLETED);
+    await updateComponentStatus(componentId, ProcessingStatus.COMPLETED);
     return;
   } catch (error) {
     console.error(`Failed to download ${ipfsHash}:`, error);
-    // await updateComponentStatus(componentId, ProcessingStatus.FAILED);
+    await updateComponentStatus(componentId, ProcessingStatus.FAILED);
   }
 }
 
