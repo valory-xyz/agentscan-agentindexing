@@ -66,13 +66,17 @@ export const dbQueue = new pQueue({
   timeout: 120000, // 120 second timeout
   throwOnTimeout: true,
 }).on("error", async (error) => {
-  console.log(`Database operation failed: ${error.message}`);
+  if (error.message?.includes("timed out")) {
+    console.log(`Database operation timed out, will be retried automatically`);
+  } else {
+    console.error(`Database operation failed:`, error);
+  }
 });
 
 // Add error boundary wrapper for queue operations
 // Add retry configuration
 const DB_RETRY_CONFIG = {
-  maxAttempts: 3,
+  maxAttempts: 10,
   baseDelay: 5000, // 5 seconds
   maxDelay: 30000, // 30 seconds
 };
