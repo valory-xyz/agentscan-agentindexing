@@ -69,15 +69,15 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
     }
 
     const updateData = {
-      name: metadataJson.name || null,
-      description: metadataJson.description || null,
-      image: metadataJson.image || null,
-      codeUri: metadataJson.code_uri || null,
+      name: metadataJson.name || "",
+      description: metadataJson.description || "",
+      image: metadataJson.image || "",
+      codeUri: metadataJson.code_uri || "",
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
-      packageHash: metadataJson.packageHash,
+      packageHash: metadataJson.packageHash || "",
       metadataHash: event.args.unitHash,
-      metadataURI: metadataJson.metadataURI,
+      metadataURI: metadataJson.metadataURI || "",
     };
 
     if (existingAgent) {
@@ -167,36 +167,30 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
     context.db.find(Component, { id: componentId }),
   ]);
 
+  const componentData = {
+    id: componentId,
+    instance: "0x",
+    name: metadataJson?.name || "",
+    description: metadataJson?.description || "",
+    image: metadataJson?.image || "",
+    codeUri: metadataJson?.code_uri || "",
+    blockNumber: Number(event.block.number),
+    timestamp: Number(event.block.timestamp),
+    packageHash: metadataJson?.packageHash || "",
+    metadataHash: event.args.unitHash,
+    metadataURI: metadataJson?.metadataURI || "",
+  };
+
   try {
     if (existingComponent) {
-      await context.db.update(Component, { id: componentId }).set({
-        name: metadataJson?.name || null,
-        description: metadataJson?.description || null,
-        image: metadataJson?.image || null,
-        codeUri: metadataJson?.code_uri || null,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        packageHash: metadataJson?.packageHash,
-        metadataHash: event.args.unitHash,
-        metadataURI: metadataJson?.metadataURI,
-      });
+      await context.db
+        .update(Component, { id: componentId })
+        .set(componentData);
     } else {
-      await context.db.insert(Component).values({
-        id: componentId,
-        instance: "0x",
-        name: metadataJson?.name || null,
-        description: metadataJson?.description || null,
-        image: metadataJson?.image || null,
-        codeUri: metadataJson?.code_uri || null,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        packageHash: metadataJson?.packageHash,
-        metadataHash: event.args.unitHash,
-        metadataURI: metadataJson?.metadataURI,
-      });
+      await context.db.insert(Component).values(componentData);
     }
   } catch (e) {
-    // console.error("Error in ComponentRegistry:CreateUnit:", e);
+    console.error("Error in ComponentRegistry:CreateUnit:", e);
   }
 
   //call
@@ -283,14 +277,14 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   try {
     await context.db.update(Agent, { id: agentId }).set({
       name: metadataJson?.name || null,
-      description: metadataJson?.description || null,
-      image: metadataJson?.image || null,
-      codeUri: metadataJson?.code_uri || null,
+      description: metadataJson?.description || "",
+      image: metadataJson?.image || "",
+      codeUri: metadataJson?.code_uri || "",
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
-      packageHash: metadataJson?.packageHash,
+      packageHash: metadataJson?.packageHash || "",
       metadataHash: event.args.unitHash,
-      metadataURI: metadataJson?.metadataURI,
+      metadataURI: metadataJson?.metadataURI || "",
     });
   } catch (e) {
     // console.error("Error in UpdateUnitHash handler for Agent:", e);
@@ -311,14 +305,14 @@ ponder.on(
     try {
       await context.db.update(Component, { id: componentId }).set({
         name: metadataJson?.name || null,
-        description: metadataJson?.description || null,
-        image: metadataJson?.image || null,
-        codeUri: metadataJson?.code_uri || null,
+        description: metadataJson?.description || "",
+        image: metadataJson?.image || "",
+        codeUri: metadataJson?.code_uri || "",
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
-        packageHash: metadataJson?.packageHash,
+        packageHash: metadataJson?.packageHash || "",
         metadataHash: event.args.unitHash,
-        metadataURI: metadataJson?.metadataURI,
+        metadataURI: metadataJson?.metadataURI || "",
       });
     } catch (e) {
       // console.error("Error in UpdateUnitHash handler for Component:", e);
@@ -341,38 +335,37 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
     const packageHash = metadataJson?.packageHash;
 
+    const serviceData = {
+      id: chainScopedId,
+      chain,
+      securityDeposit: 0n,
+      multisig: "0x",
+      configHash: event.args.configHash,
+      threshold: 0,
+      maxNumAgentInstances: 0,
+      numAgentInstances: 0,
+      state: "UNREGISTERED" as const,
+      blockNumber: Number(event.block.number),
+      chainId: getChainId(chain),
+      name: metadataJson?.name || "",
+      description: metadataJson?.description || "",
+      image: metadataJson?.image || "",
+      codeUri: metadataJson?.code_uri || "",
+      metadataURI: metadataJson?.metadataURI || "",
+      packageHash: packageHash || "",
+      metadataHash: event.args.configHash,
+      timestamp: Number(event.block.timestamp),
+    };
     try {
       await context.db.insert(Service).values({
-        id: chainScopedId,
-        chain,
-        securityDeposit: 0n,
-        multisig: "0x",
-        configHash: event.args.configHash,
-        threshold: 0,
-        maxNumAgentInstances: 0,
-        numAgentInstances: 0,
-        state: "UNREGISTERED",
-        blockNumber: Number(event.block.number),
-        chainId: getChainId(chain),
-        name: metadataJson?.name || null,
-        description: metadataJson?.description || null,
-        image: metadataJson?.image || null,
-        codeUri: metadataJson?.code_uri || null,
-        metadataURI: metadataJson?.metadataURI,
-        packageHash,
-        metadataHash: event.args.configHash,
-        timestamp: Number(event.block.timestamp),
+        ...serviceData,
+        multisig: serviceData.multisig as `0x${string}`,
       });
     } catch (e) {
       //if the service already exists, update it
       await context.db.update(Service, { id: chainScopedId }).set({
-        name: metadataJson?.name || null,
-        description: metadataJson?.description || null,
-        image: metadataJson?.image || null,
-        codeUri: metadataJson?.code_uri || null,
-        metadataURI: metadataJson?.metadataURI,
-        packageHash,
-        metadataHash: event.args.configHash,
+        ...serviceData,
+        multisig: serviceData.multisig as `0x${string}`,
       });
       // console.error("Error in CreateService handler:", e);
     }
