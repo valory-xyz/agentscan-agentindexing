@@ -484,11 +484,11 @@ CONTRACT_NAMES.forEach((contractName) => {
 
     try {
       await context.db.update(Service, { id: serviceId }).set({
-        name: metadataJson.name || null,
-        description: metadataJson.description || null,
-        image: metadataJson.image || null,
-        codeUri: metadataJson.code_uri || null,
-        metadataURI: metadataJson.metadataURI,
+        name: metadataJson.name || "",
+        description: metadataJson.description || "",
+        image: metadataJson.image || "",
+        codeUri: metadataJson.code_uri || "",
+        metadataURI: metadataJson.metadataURI || "",
         packageHash,
         metadataHash: event.args.configHash,
       });
