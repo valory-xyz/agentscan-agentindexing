@@ -223,11 +223,12 @@ async function processCodeContent(
     const fileName = path.basename(relativePath);
 
     if (!Array.isArray(embeddings) || embeddings.length === 1) {
-      const result = await safeQueueOperation(async () => {
+      const promise = await safeQueueOperation(async () => {
         return await dbQueue.add(async () => {
-          await executeQuery(async (client) => {
-            await client.query(
-              `INSERT INTO context_embeddings (
+          const result: { rows: Array<{ id: string }> } = await executeQuery(
+            async (client: any) => {
+              return await client.query(
+                `INSERT INTO context_embeddings (
                 id,
                 company_id,
                 type,
@@ -237,21 +238,27 @@ async function processCodeContent(
                 embedding,
                 created_at,
                 updated_at
-              ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
-              [
-                componentId,
-                "olas",
-                "component",
-                ipfsUrl,
-                cleanedCodeContent,
-                fileName,
-                embeddings,
-              ]
-            );
-          });
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())  ON CONFLICT (id, type, location) DO UPDATE SET
+                content = EXCLUDED.content,
+                embedding = EXCLUDED.embedding,
+                updated_at = NOW()
+              RETURNING id`,
+                [
+                  componentId,
+                  "olas",
+                  "component",
+                  ipfsUrl,
+                  cleanedCodeContent,
+                  fileName,
+                  embeddings,
+                ]
+              );
+            }
+          );
+          return result.rows.length > 0;
         });
       });
-      return result !== null;
+      return promise || false;
     } else {
       const chunks = splitTextIntoChunks(cleanedCodeContent, MAX_TOKENS);
       const results = await Promise.allSettled(
@@ -259,7 +266,7 @@ async function processCodeContent(
           safeQueueOperation(async () => {
             return await dbQueue.add(async () => {
               await executeQuery(async (client) => {
-                await client.query(
+                const result = await client.query(
                   `INSERT INTO context_embeddings (
                     id,
                     company_id,
@@ -272,7 +279,11 @@ async function processCodeContent(
                     original_location,
                     created_at,
                     updated_at
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())`,
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())  ON CONFLICT (id, type, location) DO UPDATE SET
+                    content = EXCLUDED.content,
+                    embedding = EXCLUDED.embedding,
+                    updated_at = NOW()
+                  RETURNING id`,
                   [
                     componentId,
                     "olas",
@@ -285,14 +296,13 @@ async function processCodeContent(
                     ipfsUrl,
                   ]
                 );
+                return result.rows[0]?.id;
               });
             });
           })
         )
       );
-      return results.every(
-        (result) => result.status === "fulfilled" && result.value !== null
-      );
+      return results.every((result) => result.status === "fulfilled" && result);
     }
   } catch (error) {
     console.error(`Failed to process code content for ${relativePath}:`, error);
