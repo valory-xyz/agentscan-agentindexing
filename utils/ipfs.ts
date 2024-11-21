@@ -70,12 +70,34 @@ export const dbQueue = new pQueue({
 });
 
 // Add error boundary wrapper for queue operations
+// Add retry configuration
+const DB_RETRY_CONFIG = {
+  maxAttempts: 3,
+  baseDelay: 5000, // 5 seconds
+  maxDelay: 30000, // 30 seconds
+};
+
+// Enhanced error boundary wrapper with retries
 async function safeQueueOperation<T>(
-  operation: () => Promise<T>
+  operation: () => Promise<T>,
+  attempt = 1
 ): Promise<T | null> {
   try {
     return await operation();
-  } catch (error) {
+  } catch (error: any) {
+    const isTimeout = error.message?.includes("timed out");
+    if (isTimeout && attempt < DB_RETRY_CONFIG.maxAttempts) {
+      const delay = Math.min(
+        DB_RETRY_CONFIG.baseDelay * Math.pow(2, attempt - 1),
+        DB_RETRY_CONFIG.maxDelay
+      );
+      console.log(
+        `Database timeout, attempt ${attempt}. Retrying in ${delay}ms...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return safeQueueOperation(operation, attempt + 1);
+    }
+
     console.error("Queue operation failed:", error);
     return null;
   }
