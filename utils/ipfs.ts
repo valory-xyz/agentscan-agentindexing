@@ -95,7 +95,11 @@ async function updateComponentStatus(
           status,
           error_message,
           updated_at
-        ) VALUES ($1, $2, $3, NOW())`,
+        ) VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (component_id) DO UPDATE SET
+          status = EXCLUDED.status,
+          error_message = EXCLUDED.error_message,
+          updated_at = NOW()`,
         [componentId, status, errorMessage || null]
       );
     });
