@@ -670,14 +670,14 @@ async function traverseDAG(
                   );
                 }
 
-                if (!codeContent) {
+                if (!response.data) {
                   throw new Error(`Empty content received for ${item.hash}`);
                 }
 
                 const cleanedCodeContent =
-                  typeof codeContent === "string"
-                    ? codeContent.replace(/[\r\n]/g, " ")
-                    : String(codeContent).replace(/[\r\n]/g, " ");
+                  typeof response.data === "string"
+                    ? response.data.replace(/[\r\n]/g, " ")
+                    : String(response.data).replace(/[\r\n]/g, " ");
 
                 console.log(
                   `Content length for ${item.name}: ${cleanedCodeContent.length}`
