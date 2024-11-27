@@ -126,18 +126,27 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
   const agentId = event.args.id.toString();
 
   try {
-    // Create agent instance data
-    const agentInstanceData = {
-      id: event.args.to.toString(),
-      agentId: agentId,
-      operator: event.args.to.toString(),
-      serviceId: null,
-      blockNumber: Number(event.block.number),
-      timestamp: Number(event.block.timestamp),
-    };
+    const existingAgent = await context.db.find(Agent, { id: agentId });
 
-    // Create only the agent instance
-    await context.db.insert(AgentInstance).values(agentInstanceData);
+    if (existingAgent) {
+      await context.db.update(Agent, { id: agentId }).set({
+        operator: event.args.to.toString(),
+      });
+    } else {
+      await context.db.insert(Agent).values({
+        id: agentId,
+        operator: event.args.to.toString(),
+        name: "", // Default name
+        description: "", // Default description
+        image: "", // Default image
+        codeUri: "", // Default codeUri
+        blockNumber: Number(event.block.number),
+        timestamp: Number(event.block.timestamp),
+        packageHash: "", // Default packageHash
+        metadataHash: "", // Default metadataHash
+        metadataURI: "", // Default metadataURI
+      });
+    }
   } catch (e) {
     console.error("Error in AgentRegistry:Transfer:", e);
   }
@@ -396,10 +405,14 @@ CONTRACT_NAMES.forEach((contractName) => {
     const agentId = event.args.agentId.toString();
 
     try {
+      // Update the agent with the operator
+      await context.db.update(Agent, { id: agentId }).set({
+        operator: event.args.operator as string,
+      });
+
       await context.db.insert(AgentInstance).values({
         id: event.args.agentInstance,
         agentId: agentId,
-        operator: event.args.operator as string,
         serviceId: serviceId,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),

@@ -54,6 +54,7 @@ export const Agent = onchainTable(
     metadataHash: t.text(),
     metadataURI: t.text(),
     packageHash: t.text(),
+    operator: t.text(),
   }),
   (table) => ({
     idx: index().on(table.id),
@@ -61,6 +62,7 @@ export const Agent = onchainTable(
     metadataHashIdx: index().on(table.metadataHash),
     timestampIdx: index().on(table.timestamp),
     blockNumberIdx: index().on(table.blockNumber),
+    operatorIdx: index().on(table.operator),
   })
 );
 
@@ -69,14 +71,12 @@ export const AgentInstance = onchainTable(
   (t) => ({
     id: t.text().primaryKey(),
     agentId: t.text().notNull(),
-    operator: t.text(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
   }),
   (table) => ({
     idx: index().on(table.id),
     agentIdx: index().on(table.agentId),
-    operatorIdx: index().on(table.operator),
     timestampIdx: index().on(table.timestamp),
     blockNumberIdx: index().on(table.blockNumber),
   })
