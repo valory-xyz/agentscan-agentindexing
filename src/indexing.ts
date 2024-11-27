@@ -409,14 +409,17 @@ CONTRACT_NAMES.forEach((contractName) => {
       await context.db.update(Agent, { id: agentId }).set({
         operator: event.args.operator as string,
       });
-
-      await context.db.insert(AgentInstance).values({
-        id: event.args.agentInstance,
-        agentId: agentId,
-        serviceId: serviceId,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      });
+      try {
+        await context.db.insert(AgentInstance).values({
+          id: event.args.agentInstance,
+          agentId: agentId,
+          serviceId: serviceId,
+          blockNumber: Number(event.block.number),
+          timestamp: Number(event.block.timestamp),
+        });
+      } catch (e) {
+        console.log("error inserting agent instance", e);
+      }
 
       const service = await context.db.find(Service, { id: serviceId });
       if (service) {
