@@ -1,4 +1,5 @@
 import { ponder } from "@/generated";
+import NodeCache from "node-cache";
 
 import {
   Service,
@@ -18,18 +19,45 @@ import {
   getChainName,
 } from "../utils";
 
+const metadataCache = new NodeCache({
+  stdTTL: 3600,
+  checkperiod: 600,
+  useClones: false,
+  maxKeys: 4000,
+});
+
 async function fetchMetadata(
   hash: string,
   id: string,
-  type: "component" | "service" | "agent"
-) {
+  type: "component" | "service" | "agent",
+  useCache: boolean = true
+): Promise<any> {
+  const cacheKey = `${hash}-${id}-${type}`;
+
+  if (useCache) {
+    const cachedData = metadataCache.get(cacheKey);
+    if (cachedData) {
+      return cachedData;
+    }
+  }
+
   try {
-    return await fetchAndTransformMetadata(hash, 3, { type, id });
+    const metadata = await fetchAndTransformMetadata(hash, 3, { type, id });
+
+    if (metadata) {
+      metadataCache.set(cacheKey, metadata);
+    }
+
+    return metadata;
   } catch (error) {
     console.error(`Metadata fetch failed for ${type} ${id}:`, error);
     return null;
   }
 }
+
+metadataCache.on("error", (err) => {
+  console.error("Cache error:", err);
+});
 
 async function fetchAndEmbedMetadataWrapper(hash: string, componentId: string) {
   try {
@@ -58,7 +86,7 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
 
   await withErrorBoundary(async () => {
     const [metadataJson, existingAgent] = await Promise.all([
-      fetchMetadata(event.args.unitHash, agentId, "agent"),
+      fetchMetadata(event.args.unitHash, agentId, "agent", true),
       context.db.find(Agent, { id: agentId }),
     ]);
 
@@ -261,7 +289,8 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   const metadataJson = await fetchMetadata(
     event.args.unitHash,
     agentId,
-    "agent"
+    "agent",
+    false
   );
 
   try {
@@ -288,7 +317,8 @@ ponder.on(
     const metadataJson = await fetchMetadata(
       event.args.unitHash,
       componentId,
-      "component"
+      "component",
+      false
     );
 
     try {
@@ -319,7 +349,8 @@ CONTRACT_NAMES.forEach((contractName) => {
     const metadataJson = await fetchMetadata(
       event.args.configHash,
       chainScopedId,
-      "service"
+      "service",
+      true
     );
     const packageHash = metadataJson?.packageHash;
 
@@ -467,7 +498,8 @@ CONTRACT_NAMES.forEach((contractName) => {
     const metadataJson = await fetchMetadata(
       event.args.configHash,
       serviceId,
-      "service"
+      "service",
+      false
     );
 
     if (!metadataJson) {
