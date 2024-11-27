@@ -405,10 +405,6 @@ CONTRACT_NAMES.forEach((contractName) => {
     const agentId = event.args.agentId.toString();
 
     try {
-      // Update the agent with the operator
-      await context.db.update(Agent, { id: agentId }).set({
-        operator: event.args.operator as string,
-      });
       try {
         await context.db.insert(AgentInstance).values({
           id: event.args.agentInstance,
