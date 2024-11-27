@@ -27,8 +27,8 @@ export const CONTRACT_NAMES = [
   "ArbitrumRegistry",
   "OptimismRegistry",
   "BaseRegistry",
-  "CeloRegistry",
-  "ModeRegistry",
+  // "CeloRegistry",
+  // "ModeRegistry",
 ] as const;
 
 export const getChainId = (chain: string): number => {

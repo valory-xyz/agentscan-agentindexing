@@ -43,16 +43,16 @@ export default createConfig({
         batch: true,
       }),
     },
-    celo: {
-      chainId: 42220,
-      transport: http(process.env.PONDER_RPC_URL_42220, {
-        batch: false,
-      }),
-    },
-    mode: {
-      chainId: 34443,
-      transport: http(process.env.PONDER_RPC_URL_34443),
-    },
+    // celo: {
+    //   chainId: 42220,
+    //   transport: http(process.env.PONDER_RPC_URL_42220, {
+    //     batch: false,
+    //   }),
+    // },
+    // mode: {
+    //   chainId: 34443,
+    //   transport: http(process.env.PONDER_RPC_URL_34443),
+    // },
   },
   contracts: {
     MainnetStaking: {
@@ -103,18 +103,18 @@ export default createConfig({
       address: "0x15bd56669F57192a97dF41A2aa8f4403e9491776",
       startBlock: 15178253,
     },
-    CeloRegistry: {
-      network: "celo",
-      abi: ServiceRegistryABI,
-      address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-      startBlock: 24205712,
-    },
-    ModeRegistry: {
-      network: "mode",
-      abi: ServiceRegistryABI,
-      address: "0x3C1fF68f5aa342D296d4DEe4Bb1cACCA912D95fE",
-      startBlock: 14444011,
-    },
+    // CeloRegistry: {
+    //   network: "celo",
+    //   abi: ServiceRegistryABI,
+    //   address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
+    //   startBlock: 24205712,
+    // },
+    // ModeRegistry: {
+    //   network: "mode",
+    //   abi: ServiceRegistryABI,
+    //   address: "0x3C1fF68f5aa342D296d4DEe4Bb1cACCA912D95fE",
+    //   startBlock: 14444011,
+    // },
   },
   database: {
     kind: "postgres",
