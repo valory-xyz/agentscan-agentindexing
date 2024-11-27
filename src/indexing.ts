@@ -7,6 +7,7 @@ import {
   ServiceAgent,
   ComponentDependency,
   ComponentAgent,
+  AgentInstance,
 } from "../ponder.schema";
 import {
   CONTRACT_NAMES,
@@ -17,7 +18,6 @@ import {
   getChainName,
 } from "../utils";
 
-// Replace memoized functions with direct calls
 async function fetchMetadata(
   hash: string,
   id: string,
@@ -53,7 +53,6 @@ async function withErrorBoundary<T>(
   }
 }
 
-// Update the CreateUnit handler with error boundary
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
 
@@ -85,8 +84,6 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
     } else {
       await context.db.insert(Agent).values({
         id: agentId,
-        operator: null,
-        instance: "0x",
         ...updateData,
       });
     }
@@ -129,39 +126,26 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
   const agentId = event.args.id.toString();
 
   try {
-    //try to find the agent
-    const existingAgent = await context.db.find(Agent, {
-      id: agentId,
-    });
-    if (existingAgent) {
-      // Update the owner of the agent
-      await context.db
-        .update(Agent, {
-          id: agentId,
-        })
-        .set({
-          instance: event.args.to,
-        });
-    } else {
-      console.log("agent not found", agentId);
-      //create the agent
-      await context.db.insert(Agent).values({
-        id: agentId,
-        instance: event.args.to,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      });
-    }
+    // Create agent instance data
+    const agentInstanceData = {
+      id: event.args.to.toString(),
+      agentId: agentId,
+      operator: event.args.to.toString(),
+      serviceId: null,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
+    };
+
+    // Create only the agent instance
+    await context.db.insert(AgentInstance).values(agentInstanceData);
   } catch (e) {
-    console.log("error", e);
+    console.error("Error in AgentRegistry:Transfer:", e);
   }
 });
 
-// Add handlers for Component registry events
 ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
   const componentId = event.args.unitId.toString();
 
-  // Use memoized fetch and parallel processing
   const [metadataJson, existingComponent] = await Promise.all([
     fetchAndEmbedMetadataWrapper(event.args.unitHash, componentId),
     context.db.find(Component, { id: componentId }),
@@ -193,10 +177,9 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
     console.error("Error in ComponentRegistry:CreateUnit:", e);
   }
 
-  //call
   try {
     const { client } = context;
-    //      ^? ReadonlyClient<"mainnet">
+
     const { MainnetComponentRegistry } = context.contracts;
     const dependencies = await client.readContract({
       abi: MainnetComponentRegistry.abi,
@@ -242,7 +225,6 @@ ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
     });
 
     if (existingComponent) {
-      // Update the instance (owner) of the component
       await context.db
         .update(Component, {
           id: componentId,
@@ -265,7 +247,6 @@ ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
   }
 });
 
-// Add UpdateUnitHash handler for AgentRegistry
 ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
   const metadataJson = await fetchMetadata(
@@ -291,7 +272,6 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   }
 });
 
-// Add UpdateUnitHash handler for ComponentRegistry
 ponder.on(
   `MainnetComponentRegistry:UpdateUnitHash`,
   async ({ event, context }) => {
@@ -320,7 +300,6 @@ ponder.on(
   }
 );
 
-// Create event handlers for each contract
 CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
@@ -387,7 +366,6 @@ CONTRACT_NAMES.forEach((contractName) => {
         });
     } catch (e) {
       console.log("error", e);
-      //
     }
   });
 
@@ -418,13 +396,15 @@ CONTRACT_NAMES.forEach((contractName) => {
     const agentId = event.args.agentId.toString();
 
     try {
-      // Update agent
-      await context.db.update(Agent, { id: agentId }).set({
-        operator: event.args.operator,
-        instance: event.args.agentInstance,
+      await context.db.insert(AgentInstance).values({
+        id: event.args.agentInstance,
+        agentId: agentId,
+        operator: event.args.operator as string,
+        serviceId: serviceId,
+        blockNumber: Number(event.block.number),
+        timestamp: Number(event.block.timestamp),
       });
 
-      // Update service state
       const service = await context.db.find(Service, { id: serviceId });
       if (service) {
         await context.db.update(Service, { id: serviceId }).set({
@@ -432,14 +412,13 @@ CONTRACT_NAMES.forEach((contractName) => {
         });
       }
 
-      // Create service-agent relation
       await context.db.insert(ServiceAgent).values({
-        id: `${serviceId}-${agentId}`,
+        id: `${serviceId}-${event.args.agentInstance}`,
         serviceId,
-        agentId,
+        agentInstanceId: event.args.agentInstance,
       });
     } catch (e) {
-      // console.error("Error in RegisterInstance handler:", e);
+      console.error("Error in RegisterInstance handler:", e);
     }
   });
 

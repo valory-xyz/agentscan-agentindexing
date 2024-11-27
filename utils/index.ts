@@ -1,9 +1,4 @@
 import axios from "axios";
-import { recursiveDownload } from "./ipfs";
-import { executeQuery } from "./postgres";
-
-import { generateEmbeddingWithRetry } from "./openai";
-import { dbQueue } from "./ipfs";
 
 // Helper function to get chain name from contract name
 export const getChainName = (contractName: string) => {
@@ -34,8 +29,8 @@ export const CONTRACT_NAMES = [
   "ArbitrumRegistry",
   "OptimismRegistry",
   "BaseRegistry",
-  // "CeloRegistry",
-  // "ModeRegistry",
+  "CeloRegistry",
+  "ModeRegistry",
 ] as const;
 
 // Helper to get chainId from chain name
@@ -77,17 +72,6 @@ export const fetchAndEmbedMetadata = async (
     maxRetries,
     configInfo as ConfigInfo
   );
-
-  if (metadata?.packageHash) {
-    console.log("Downloading package hash...", metadata.packageHash);
-    try {
-      void recursiveDownload(metadata.packageHash, 15, componentId);
-    } catch (error) {
-      console.error("package hash download failed:", error);
-    }
-  } else {
-    console.log("No package hash found", componentId);
-  }
 
   return metadata;
 };
@@ -136,14 +120,6 @@ export const fetchAndTransformMetadata = async (
         metadataURI: metadataURI,
       };
 
-      // Process package download in the background
-      if (metadataJson.packageHash && configInfo.type === "component") {
-        void processPackageDownload(metadataJson.packageHash, configInfo.id);
-      }
-
-      // Process metadata embedding in the background
-      void processMetadataEmbedding(metadataJson, configInfo);
-
       // Transform IPFS URLs
       return transformIpfsUrls(metadataJson, metadataURI);
     } catch (error) {
@@ -175,81 +151,6 @@ function extractPackageHash(
     return codeUri.trim().replace(/\/$/, "");
   }
   return existingHash?.trim().replace(/\/$/, "") || null;
-}
-
-async function processPackageDownload(packageHash: string, configId: string) {
-  try {
-    console.log("Downloading package hash...", packageHash);
-    void recursiveDownload(packageHash, 15, configId);
-  } catch (error) {
-    console.error("package hash download failed:", error);
-  }
-}
-
-async function processMetadataEmbedding(
-  metadata: MetadataJson,
-  configInfo: ConfigInfo
-) {
-  try {
-    await dbQueue.add(async () => {
-      const id = `${configInfo.type}-${configInfo.id}`;
-
-      // Check for existing embedding
-      const exists = await checkExistingEmbedding(id);
-      if (exists) return;
-
-      // Generate and store embedding
-      const metadataString = `${metadata.name || ""} ${
-        metadata.description || ""
-      }`
-        .replace(/\s+/g, " ")
-        .trim();
-      const embedding = await generateEmbeddingWithRetry(metadataString);
-
-      if (!embedding) {
-        throw new Error("Failed to generate embedding");
-      }
-
-      await storeEmbedding(id, embedding, metadataString, configInfo);
-    });
-  } catch (error) {
-    console.error("Failed to process metadata embedding:", error);
-  }
-}
-
-async function checkExistingEmbedding(id: string): Promise<boolean> {
-  const result = await executeQuery(async (client) => {
-    return await client.query(
-      "SELECT 1 FROM metadata_embeddings WHERE id = $1",
-      [id]
-    );
-  });
-  return result.rows.length > 0;
-}
-
-async function storeEmbedding(
-  id: string,
-  embedding: number[],
-  metadataString: string,
-  configInfo: ConfigInfo
-) {
-  const typeColumn = `${configInfo.type}_id`;
-
-  const query = `
-    INSERT INTO metadata_embeddings (
-      id,
-      embedding,
-      metadata_content,
-      created_at,
-      ${typeColumn}
-    ) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4)
-  `;
-
-  await executeQuery(async (client) => {
-    await client.query(query, [id, embedding, metadataString, configInfo.id]);
-  });
-
-  console.log(`Stored embedding for ${configInfo.type} ${configInfo.id}`);
 }
 
 function transformIpfsUrls(

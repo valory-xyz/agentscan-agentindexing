@@ -4,6 +4,12 @@ A [Ponder](https://ponder.sh) indexer for tracking agent and service contract ev
 
 The indexed data is exposed via a GraphQL API that can be queried to analyze Memeorr activity.
 
+# NOTE: you will need a RPC URL for the following chains for improved indexing speed:
+mainnet,polygon,gnosis,arbitrum,optimism,base,celo,mode.
+
+most of these chains you can get from [Alchemy](https://www.alchemy.com/), as an alternative you can use [Quicknode](https://www.quicknode.com/)
+
+
 ### Local Development
 
 1. Clone the repository

@@ -45,7 +45,6 @@ export const Agent = onchainTable(
   "agent",
   (t) => ({
     id: t.text().primaryKey(),
-    instance: t.text().notNull(),
     name: t.text(),
     description: t.text(),
     image: t.text(),
@@ -55,13 +54,28 @@ export const Agent = onchainTable(
     metadataHash: t.text(),
     metadataURI: t.text(),
     packageHash: t.text(),
-    operator: t.text(),
   }),
   (table) => ({
     idx: index().on(table.id),
-    instanceIdx: index().on(table.instance),
     packageHashIdx: index().on(table.packageHash),
     metadataHashIdx: index().on(table.metadataHash),
+    timestampIdx: index().on(table.timestamp),
+    blockNumberIdx: index().on(table.blockNumber),
+  })
+);
+
+export const AgentInstance = onchainTable(
+  "agent_instance",
+  (t) => ({
+    id: t.text().primaryKey(),
+    agentId: t.text().notNull(),
+    operator: t.text(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+  }),
+  (table) => ({
+    idx: index().on(table.id),
+    agentIdx: index().on(table.agentId),
     operatorIdx: index().on(table.operator),
     timestampIdx: index().on(table.timestamp),
     blockNumberIdx: index().on(table.blockNumber),
@@ -98,7 +112,7 @@ export const Component = onchainTable(
 export const ServiceAgent = onchainTable("service_agent", (t) => ({
   id: t.text().primaryKey(),
   serviceId: t.text().notNull(),
-  agentId: t.text().notNull(),
+  agentInstanceId: t.text().notNull(),
 }));
 
 export const ServiceAgentRelations = relations(ServiceAgent, ({ one }) => ({
@@ -106,9 +120,9 @@ export const ServiceAgentRelations = relations(ServiceAgent, ({ one }) => ({
     fields: [ServiceAgent.serviceId],
     references: [Service.id],
   }),
-  agent: one(Agent, {
-    fields: [ServiceAgent.agentId],
-    references: [Agent.id],
+  agentInstance: one(AgentInstance, {
+    fields: [ServiceAgent.agentInstanceId],
+    references: [AgentInstance.id],
   }),
 }));
 
@@ -118,7 +132,7 @@ export const ServiceRelations = relations(Service, ({ many }) => ({
 }));
 
 export const AgentRelations = relations(Agent, ({ many }) => ({
-  serviceAgents: many(ServiceAgent),
+  instances: many(AgentInstance),
 }));
 
 export const ComponentAgent = onchainTable("component_agent", (t) => ({
@@ -172,6 +186,13 @@ export const ComponentAgentRelations = relations(ComponentAgent, ({ one }) => ({
   }),
   agent: one(Agent, {
     fields: [ComponentAgent.agentId],
+    references: [Agent.id],
+  }),
+}));
+
+export const AgentInstanceRelations = relations(AgentInstance, ({ one }) => ({
+  agent: one(Agent, {
+    fields: [AgentInstance.agentId],
     references: [Agent.id],
   }),
 }));

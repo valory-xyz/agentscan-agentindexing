@@ -1,4 +1,4 @@
-export const StakingABI = [
+export const ServiceRegistryABI = [
   {
     inputs: [
       { internalType: "string", name: "_name", type: "string" },
