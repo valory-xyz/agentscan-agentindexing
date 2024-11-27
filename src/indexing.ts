@@ -1,6 +1,4 @@
 import { ponder } from "@/generated";
-import NodeCache from "node-cache";
-
 import {
   Service,
   Agent,
@@ -13,73 +11,12 @@ import {
 import {
   CONTRACT_NAMES,
   createChainScopedId,
-  fetchAndEmbedMetadata,
-  fetchAndTransformMetadata,
+  fetchAndEmbedMetadataWrapper,
+  fetchMetadata,
   getChainId,
   getChainName,
+  withErrorBoundary,
 } from "../utils";
-
-const metadataCache = new NodeCache({
-  stdTTL: 3600,
-  checkperiod: 600,
-  useClones: false,
-  maxKeys: 4000,
-});
-
-async function fetchMetadata(
-  hash: string,
-  id: string,
-  type: "component" | "service" | "agent",
-  useCache: boolean = true
-): Promise<any> {
-  const cacheKey = `${hash}-${id}-${type}`;
-
-  if (useCache) {
-    const cachedData = metadataCache.get(cacheKey);
-    if (cachedData) {
-      return cachedData;
-    }
-  }
-
-  try {
-    const metadata = await fetchAndTransformMetadata(hash, 3, { type, id });
-
-    if (metadata) {
-      metadataCache.set(cacheKey, metadata);
-    }
-
-    return metadata;
-  } catch (error) {
-    console.error(`Metadata fetch failed for ${type} ${id}:`, error);
-    return null;
-  }
-}
-
-metadataCache.on("error", (err) => {
-  console.error("Cache error:", err);
-});
-
-async function fetchAndEmbedMetadataWrapper(hash: string, componentId: string) {
-  try {
-    return await fetchAndEmbedMetadata(hash, 5, componentId);
-  } catch (error) {
-    console.error(`Metadata embed failed for component ${componentId}:`, error);
-    return null;
-  }
-}
-
-// Add error boundary wrapper for database operations
-async function withErrorBoundary<T>(
-  operation: () => Promise<T>,
-  errorContext: string
-): Promise<T | null> {
-  try {
-    return await operation();
-  } catch (error) {
-    console.error(`Error in ${errorContext}:`, error);
-    return null;
-  }
-}
 
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();

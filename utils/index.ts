@@ -1,6 +1,6 @@
 import axios from "axios";
+import NodeCache from "node-cache";
 
-// Helper function to get chain name from contract name
 export const getChainName = (contractName: string) => {
   return contractName
     .replace("Registry", "")
@@ -8,15 +8,13 @@ export const getChainName = (contractName: string) => {
     .toLowerCase();
 };
 
-// Helper to create unique IDs across chains
 export const createChainScopedId = (
   chain: string,
   serviceId: string
 ): string => {
-  // First, clean up the serviceId by removing any existing prefixes
   const cleanId = serviceId
-    .replace(/^service-/g, "") // Remove any leading 'service-'
-    .replace(new RegExp(`^${chain}-`, "i"), ""); // Remove any leading 'chainname-'
+    .replace(/^service-/g, "")
+    .replace(new RegExp(`^${chain}-`, "i"), "");
 
   return `${chain}-${cleanId}`;
 };
@@ -33,7 +31,6 @@ export const CONTRACT_NAMES = [
   // "ModeRegistry",
 ] as const;
 
-// Helper to get chainId from chain name
 export const getChainId = (chain: string): number => {
   switch (chain.toLowerCase()) {
     case "mainnet":
@@ -49,12 +46,61 @@ export const getChainId = (chain: string): number => {
     case "base":
       return 8453;
     default:
-      return 1; // Default to mainnet
+      return 1;
   }
 };
 
-// Add delay helper function
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const metadataCache = new NodeCache({
+  stdTTL: 3600,
+  checkperiod: 600,
+  useClones: false,
+  maxKeys: 4000,
+});
+
+export async function fetchMetadata(
+  hash: string,
+  id: string,
+  type: "component" | "service" | "agent",
+  useCache: boolean = true
+): Promise<any> {
+  const cacheKey = `${hash}-${id}-${type}`;
+
+  if (useCache) {
+    const cachedData = metadataCache.get(cacheKey);
+    if (cachedData) {
+      return cachedData;
+    }
+  }
+
+  try {
+    const metadata = await fetchAndTransformMetadata(hash, 3, { type, id });
+
+    if (metadata) {
+      metadataCache.set(cacheKey, metadata);
+    }
+
+    return metadata;
+  } catch (error) {
+    console.error(`Metadata fetch failed for ${type} ${id}:`, error);
+    return null;
+  }
+}
+
+metadataCache.on("error", (err) => {
+  console.error("Cache error:", err);
+});
+
+export async function fetchAndEmbedMetadataWrapper(
+  hash: string,
+  componentId: string
+) {
+  try {
+    return await fetchAndEmbedMetadata(hash, 5, componentId);
+  } catch (error) {
+    console.error(`Metadata embed failed for component ${componentId}:`, error);
+    return null;
+  }
+}
 
 export const fetchAndEmbedMetadata = async (
   configHash: string,
@@ -76,7 +122,18 @@ export const fetchAndEmbedMetadata = async (
   return metadata;
 };
 
-// Add type definitions for better type safety
+export async function withErrorBoundary<T>(
+  operation: () => Promise<T>,
+  errorContext: string
+): Promise<T | null> {
+  try {
+    return await operation();
+  } catch (error) {
+    console.error(`Error in ${errorContext}:`, error);
+    return null;
+  }
+}
+
 interface ConfigInfo {
   type: "component" | "service" | "agent";
   id: string;
@@ -170,6 +227,8 @@ function transformIpfsUrls(
     metadataURI: metadataURI,
   };
 }
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function handleRetry(attempt: number, metadataURI: string) {
   const backoffTime = Math.min(500 * (attempt + 1), 2000);
