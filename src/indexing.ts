@@ -366,13 +366,18 @@ CONTRACT_NAMES.forEach((contractName) => {
     const chainScopedId = createChainScopedId(chain, cleanServiceId);
 
     try {
-      await context.db
-        .update(Service, {
-          id: chainScopedId,
-        })
-        .set({
-          state: "DEPLOYED",
-        });
+      const service = await context.db.find(Service, { id: chainScopedId });
+      if (service) {
+        await context.db
+          .update(Service, {
+            id: chainScopedId,
+          })
+          .set({
+            state: "DEPLOYED",
+          });
+      } else {
+        console.log("service not found", chainScopedId);
+      }
     } catch (e) {
       console.log("error", e);
     }
