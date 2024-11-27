@@ -355,7 +355,6 @@ CONTRACT_NAMES.forEach((contractName) => {
         ...serviceData,
         multisig: serviceData.multisig as `0x${string}`,
       });
-      // console.error("Error in CreateService handler:", e);
     }
   });
 
