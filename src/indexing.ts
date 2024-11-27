@@ -61,7 +61,7 @@ metadataCache.on("error", (err) => {
 
 async function fetchAndEmbedMetadataWrapper(hash: string, componentId: string) {
   try {
-    return await fetchAndEmbedMetadata(hash, 10, componentId);
+    return await fetchAndEmbedMetadata(hash, 5, componentId);
   } catch (error) {
     console.error(`Metadata embed failed for component ${componentId}:`, error);
     return null;
