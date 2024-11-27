@@ -36,4 +36,3 @@ The GraphQL playground will be available at http://localhost:42069/graphql
 
 Check out the ponder [deployment guide](https://ponder.sh/docs/production/deploy) for detailed instructions.
 
-We recommend using [Supabase](https://supabase.com/) for a hosted PostgresDB.
