@@ -46,7 +46,7 @@ export default createConfig({
     celo: {
       chainId: 42220,
       transport: http(process.env.PONDER_RPC_URL_42220, {
-        batch: true,
+        batch: false,
       }),
     },
     // mode: {
