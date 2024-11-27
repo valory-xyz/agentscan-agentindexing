@@ -232,10 +232,7 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
 
   try {
     await context.db.update(Agent, { id: agentId }).set({
-      name: metadataJson?.name || null,
-      description: metadataJson?.description || "",
-      image: metadataJson?.image || "",
-      codeUri: metadataJson?.code_uri || "",
+      metadata: metadataJson,
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
       packageHash: metadataJson?.packageHash || "",
@@ -260,10 +257,7 @@ ponder.on(
 
     try {
       await context.db.update(Component, { id: componentId }).set({
-        name: metadataJson?.name || null,
-        description: metadataJson?.description || "",
-        image: metadataJson?.image || "",
-        codeUri: metadataJson?.code_uri || "",
+        metadata: metadataJson,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
         packageHash: metadataJson?.packageHash || "",
@@ -448,10 +442,7 @@ CONTRACT_NAMES.forEach((contractName) => {
 
     try {
       await context.db.update(Service, { id: serviceId }).set({
-        name: metadataJson.name || "",
-        description: metadataJson.description || "",
-        image: metadataJson.image || "",
-        codeUri: metadataJson.code_uri || "",
+        metadata: metadataJson,
         metadataURI: metadataJson.metadataURI || "",
         packageHash,
         metadataHash: event.args.configHash,
