@@ -30,7 +30,7 @@ export const CONTRACT_NAMES = [
   "OptimismRegistry",
   "BaseRegistry",
   "CeloRegistry",
-  "ModeRegistry",
+  // "ModeRegistry",
 ] as const;
 
 // Helper to get chainId from chain name
