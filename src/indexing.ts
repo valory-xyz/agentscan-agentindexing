@@ -1,4 +1,4 @@
-import { ponder } from "@/generated";
+import { ponder } from "ponder:registry";
 import {
   Service,
   Agent,
@@ -7,7 +7,7 @@ import {
   ComponentDependency,
   ComponentAgent,
   AgentInstance,
-} from "../ponder.schema";
+} from "ponder:schema";
 import {
   CONTRACT_NAMES,
   createChainScopedId,
@@ -15,6 +15,7 @@ import {
   fetchMetadata,
   getChainId,
   getChainName,
+  REGISTER_NAMES,
   withErrorBoundary,
 } from "../utils";
 
@@ -450,5 +451,33 @@ CONTRACT_NAMES.forEach((contractName) => {
     } catch (e) {
       // console.error("Error in UpdateService handler:", e);
     }
+  });
+});
+
+REGISTER_NAMES.forEach((contractName) => {
+  ponder.on(`${contractName}:transaction:from`, async ({ event, context }) => {
+    console.log("transaction from", event);
+    // try {
+    //   await context.db.insert(Transaction).values({
+    //     id: transactionId,
+    //     agentInstanceId,
+    //     blockNumber: Number(event.block.number),
+    //     timestamp: Number(event.block.timestamp),
+    //     from: event.args.from.toString(),
+    //     to: event.args.to.toString(),
+    //     value: event.args.value.toString(),
+    //   });
+    // } catch (e) {
+    //   console.error("Error in InstanceTransaction handler:", e);
+    // }
+  });
+  ponder.on(`${contractName}:transaction:to`, async ({ event, context }) => {
+    console.log("transaction to", event);
+  });
+  ponder.on(`${contractName}:transfer:to`, async ({ event, context }) => {
+    console.log("transfer to", event);
+  });
+  ponder.on(`${contractName}:transfer:from`, async ({ event, context }) => {
+    console.log("transfer from", event);
   });
 });

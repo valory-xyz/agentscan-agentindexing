@@ -1,4 +1,4 @@
-import { onchainTable, onchainEnum, index, relations } from "@ponder/core";
+import { onchainTable, onchainEnum, index, relations } from "ponder";
 
 export const ServiceState = onchainEnum("state", [
   "UNREGISTERED",
