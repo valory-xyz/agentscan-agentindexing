@@ -4,6 +4,7 @@ import { getAbiItem, http, parseAbiItem } from "viem";
 import { ServiceRegistryABI } from "./abis/ServiceRegistryABI";
 import { AgentRegistryABI } from "./abis/AgentRegistry";
 import { ComponentRegistryABI } from "./abis/ComponentRegistry";
+import { GnosisSafeABI } from "./abis/GnosisSafe";
 
 export default createConfig({
   networks: {
@@ -82,7 +83,7 @@ export default createConfig({
       startBlock: 15178253,
     },
     MainnetRegisterInstance: {
-      abi: ServiceRegistryABI,
+      abi: GnosisSafeABI,
       network: "mainnet",
       address: factory({
         address: "0x48b6af7B12C71f09e2fC8aF4855De4Ff54e775cA",
@@ -96,7 +97,7 @@ export default createConfig({
       includeTransactionReceipts: true,
     },
     PolygonRegisterInstance: {
-      abi: ServiceRegistryABI,
+      abi: GnosisSafeABI,
       network: "polygon",
       address: factory({
         address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
@@ -110,7 +111,7 @@ export default createConfig({
       includeTransactionReceipts: true,
     },
     GnosisRegisterInstance: {
-      abi: ServiceRegistryABI,
+      abi: GnosisSafeABI,
       network: "gnosis",
       address: factory({
         address: "0x9338b5153AE39BB89f50468E608eD9d764B755fD",
@@ -124,7 +125,7 @@ export default createConfig({
       includeTransactionReceipts: true,
     },
     ArbitrumRegisterInstance: {
-      abi: ServiceRegistryABI,
+      abi: GnosisSafeABI,
       network: "arbitrum",
       address: factory({
         address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
@@ -138,7 +139,7 @@ export default createConfig({
       includeTransactionReceipts: true,
     },
     OptimismRegisterInstance: {
-      abi: ServiceRegistryABI,
+      abi: GnosisSafeABI,
       network: "optimism",
       address: factory({
         address: "0x3d77596beb0f130a4415df3D2D8232B3d3D31e44",
@@ -152,7 +153,7 @@ export default createConfig({
       includeTransactionReceipts: true,
     },
     BaseRegisterInstance: {
-      abi: ServiceRegistryABI,
+      abi: GnosisSafeABI,
       network: "base",
       address: factory({
         address: "0x3C1fF68f5aa342D296d4DEe4Bb1cACCA912D95fE",
