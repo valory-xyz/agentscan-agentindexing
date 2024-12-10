@@ -43,7 +43,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 19500000,
+      startBlock: 19640000,
     },
     PolygonRegisterInstance: {
       network: "polygon",
@@ -67,7 +67,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 33000000,
+      startBlock: 33400000,
     },
     ArbitrumRegisterInstance: {
       network: "arbitrum",
@@ -103,7 +103,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 11500000,
+      startBlock: 13050000,
     },
   },
   contracts: {
