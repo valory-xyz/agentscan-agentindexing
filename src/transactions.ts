@@ -4,8 +4,11 @@ import { REGISTER_NAMES } from "../utils";
 
 REGISTER_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:transaction:from`, async ({ event, context }) => {
-    console.log("transaction from", event);
+    console.log(`Handling ${contractName}:transaction:from event`, event);
     try {
+      console.log(
+        `Inserting transaction from ${event.transaction.from} to ${event.transaction.to}`
+      );
       await context.db.insert(Transaction).values({
         id: event.transaction.hash,
         blockNumber: Number(event.block.number),
@@ -15,14 +18,20 @@ REGISTER_NAMES.forEach((contractName) => {
         value: BigInt(event.transaction.value),
         hash: event.transaction.hash,
       });
+      console.log(
+        `Transaction inserted successfully: ${event.transaction.hash}`
+      );
     } catch (e) {
       console.error("Error in InstanceTransaction handler:", e);
     }
   });
 
   ponder.on(`${contractName}:transaction:to`, async ({ event, context }) => {
-    console.log("transaction to", event);
+    console.log(`Handling ${contractName}:transaction:to event`, event);
     try {
+      console.log(
+        `Inserting transaction from ${event.transaction.from} to ${event.transaction.to}`
+      );
       await context.db.insert(Transaction).values({
         id: event.transaction.hash,
         blockNumber: Number(event.block.number),
@@ -32,16 +41,22 @@ REGISTER_NAMES.forEach((contractName) => {
         value: BigInt(event.transaction.value),
         hash: event.transaction.hash,
       });
+      console.log(
+        `Transaction inserted successfully: ${event.transaction.hash}`
+      );
     } catch (e) {
       console.error("Error in InstanceTransaction handler:", e);
     }
   });
 
   ponder.on(`${contractName}:transfer:to`, async ({ event, context }) => {
-    console.log("transfer to", event);
+    console.log(`Handling ${contractName}:transfer:to event`, event);
     const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
     try {
       if (event.transaction.to) {
+        console.log(
+          `Inserting transfer from ${event.transaction.from} to ${event.transaction.to}`
+        );
         await context.db.insert(Transfer).values({
           id: transferId,
           hash: event.transaction.hash,
@@ -51,6 +66,7 @@ REGISTER_NAMES.forEach((contractName) => {
           to: event.transaction.to?.toString(),
           value: BigInt(event.transaction.value),
         });
+        console.log(`Transfer inserted successfully: ${transferId}`);
       }
     } catch (e) {
       console.error("Error in Transfer handler:", e);
@@ -58,11 +74,13 @@ REGISTER_NAMES.forEach((contractName) => {
   });
 
   ponder.on(`${contractName}:transfer:from`, async ({ event, context }) => {
-    console.log("transfer from", event);
+    console.log(`Handling ${contractName}:transfer:from event`, event);
     try {
       const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
-
       if (event.transaction.to && event.transaction.from) {
+        console.log(
+          `Inserting transfer from ${event.transaction.from} to ${event.transaction.to}`
+        );
         await context.db.insert(Transfer).values({
           id: transferId,
           hash: event.transaction.hash,
@@ -72,6 +90,7 @@ REGISTER_NAMES.forEach((contractName) => {
           to: event.transaction.to.toString(),
           value: BigInt(event.transaction.value),
         });
+        console.log(`Transfer inserted successfully: ${transferId}`);
       }
     } catch (e) {
       console.error("Error in Transfer handler:", e);
