@@ -11,7 +11,6 @@ import {
 import {
   CONTRACT_NAMES,
   createChainScopedId,
-  fetchAndEmbedMetadataWrapper,
   fetchMetadata,
   getChainId,
   getChainName,
@@ -48,17 +47,25 @@ const createDefaultService = (
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
   console.log(`Handling MainnetAgentRegistry:CreateUnit for agent ${agentId}`);
+  const [metadataJson] = await Promise.all([
+    fetchMetadata(event.args.unitHash, agentId, "agent", true),
+  ]);
+
+  if (!metadataJson) {
+    console.warn(`No metadata found for agent ${agentId}`);
+    return;
+  }
 
   const updateData = {
-    name: null,
-    description: null,
-    image: null,
-    codeUri: null,
+    name: metadataJson.name,
+    description: metadataJson.description,
+    image: metadataJson.image,
+    codeUri: metadataJson.codeUri,
     blockNumber: Number(event.block.number),
     timestamp: Number(event.block.timestamp),
-    packageHash: null,
+    packageHash: metadataJson.packageHash,
     metadataHash: event.args.unitHash,
-    metadataURI: null,
+    metadataURI: metadataJson.metadataURI,
   };
 
   await context.db
@@ -122,15 +129,15 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
         .values({
           id: agentId,
           operator: event.args.to.toString(),
-          name: null, // Default name
-          description: null, // Default description
-          image: null, // Default image
-          codeUri: null, // Default codeUri
+          name: null,
+          description: null,
+          image: null,
+          codeUri: null,
           blockNumber: Number(event.block.number),
           timestamp: Number(event.block.timestamp),
-          packageHash: null, // Default packageHash
-          metadataHash: null, // Default metadataHash
-          metadataURI: null, // Default metadataURI
+          packageHash: null,
+          metadataHash: null,
+          metadataURI: null,
         })
         .onConflictDoNothing();
     } catch (e) {
@@ -144,19 +151,22 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
   console.log(
     `Handling MainnetComponentRegistry:CreateUnit for component ${componentId}`
   );
+  const [metadataJson] = await Promise.all([
+    fetchMetadata(event.args.unitHash, componentId, "component", true),
+  ]);
 
   const componentData = {
     id: componentId,
     instance: "0x",
-    name: null,
-    description: null,
-    image: null,
-    codeUri: null,
+    name: metadataJson?.name,
+    description: metadataJson?.description,
+    image: metadataJson?.image,
+    codeUri: metadataJson?.codeUri,
     blockNumber: Number(event.block.number),
     timestamp: Number(event.block.timestamp),
-    packageHash: null,
+    packageHash: metadataJson?.packageHash,
     metadataHash: event.args.unitHash,
-    metadataURI: null,
+    metadataURI: metadataJson?.metadataURI,
   };
 
   await context.db
@@ -244,22 +254,25 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
     `Handling MainnetAgentRegistry:UpdateUnitHash for agent ${agentId}`
   );
 
-  // const metadataJson = await fetchMetadata(
-  //   event.args.unitHash,
-  //   agentId,
-  //   "agent",
-  //   false
-  // );
+  const metadataJson = await fetchMetadata(
+    event.args.unitHash,
+    agentId,
+    "agent",
+    false
+  );
 
   try {
     console.log(`Updating metadata for agent ${agentId}`);
     await context.db.update(Agent, { id: agentId }).set({
-      metadata: {},
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
-      packageHash: "",
+      packageHash: metadataJson?.packageHash,
       metadataHash: event.args.unitHash,
-      metadataURI: "",
+      metadataURI: metadataJson?.metadataURI,
+      name: metadataJson?.name,
+      description: metadataJson?.description,
+      image: metadataJson?.image,
+      codeUri: metadataJson?.codeUri,
     });
   } catch (e) {
     console.error("Error in UpdateUnitHash handler for Agent:", e);
@@ -274,22 +287,25 @@ ponder.on(
       `Handling MainnetComponentRegistry:UpdateUnitHash for component ${componentId}`
     );
 
-    // const metadataJson = await fetchMetadata(
-    //   event.args.unitHash,
-    //   componentId,
-    //   "component",
-    //   false
-    // );
+    const metadataJson = await fetchMetadata(
+      event.args.unitHash,
+      componentId,
+      "component",
+      false
+    );
 
     try {
       console.log(`Updating metadata for component ${componentId}`);
       await context.db.update(Component, { id: componentId }).set({
-        metadata: {},
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
-        packageHash: "",
+        packageHash: metadataJson?.packageHash,
         metadataHash: event.args.unitHash,
-        metadataURI: "",
+        metadataURI: metadataJson?.metadataURI,
+        name: metadataJson?.name,
+        description: metadataJson?.description,
+        image: metadataJson?.image,
+        codeUri: metadataJson?.codeUri,
       });
     } catch (e) {
       console.error("Error in UpdateUnitHash handler for Component:", e);
@@ -305,6 +321,14 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
+
+    const metadataJson = await fetchMetadata(
+      event.args.configHash,
+      serviceId,
+      "service",
+      true
+    );
+    const packageHash = metadataJson?.packageHash;
     console.log(
       `Handling ${contractName}:CreateService for service ${serviceId}`
     );
@@ -321,12 +345,12 @@ CONTRACT_NAMES.forEach((contractName) => {
       state: "UNREGISTERED" as const,
       blockNumber: Number(event.block.number),
       chainId: getChainId(chain),
-      name: null,
-      description: null,
-      image: null,
-      codeUri: null,
-      metadataURI: null,
-      packageHash: null,
+      name: metadataJson?.name,
+      description: metadataJson?.description,
+      image: metadataJson?.image,
+      codeUri: metadataJson?.codeUri,
+      metadataURI: metadataJson?.metadataURI,
+      packageHash,
       metadataHash: event.args.configHash,
       timestamp: Number(event.block.timestamp),
     };
@@ -529,11 +553,21 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
 
     try {
+      const metadataJson = await fetchMetadata(
+        event.args.configHash,
+        serviceId,
+        "service",
+        true
+      );
+      const packageHash = metadataJson?.packageHash;
       await context.db.update(Service, { id: serviceId }).set({
-        metadata: {},
-        metadataURI: "",
-        packageHash: "",
+        metadataURI: metadataJson?.metadataURI,
+        packageHash,
         metadataHash: event.args.configHash,
+        name: metadataJson?.name,
+        description: metadataJson?.description,
+        image: metadataJson?.image,
+        codeUri: metadataJson?.codeUri,
       });
     } catch (e) {
       console.error("Error updating service, attempting creation:", e);
@@ -549,14 +583,8 @@ CONTRACT_NAMES.forEach((contractName) => {
           .insert(Service)
           .values({
             ...defaultService,
-            metadata: {},
-            metadataURI: "",
-            packageHash: "",
           })
           .onConflictDoUpdate({
-            metadata: {},
-            metadataURI: "",
-            packageHash: "",
             metadataHash: event.args.configHash,
           });
       } catch (insertError) {

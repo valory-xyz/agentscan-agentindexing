@@ -72,27 +72,57 @@ export async function fetchMetadata(
   type: "component" | "service" | "agent",
   useCache: boolean = true
 ): Promise<any> {
-  const cacheKey = `${hash}-${id}-${type}`;
-
-  if (useCache) {
-    const cachedData = metadataCache.get(cacheKey);
-    if (cachedData) {
-      return cachedData;
-    }
+  if (!hash) {
+    console.warn(`No hash provided for ${type} ${id}`);
+    return getDefaultMetadata(type, id);
   }
 
+  const cacheKey = `${hash}-${id}-${type}`;
+
   try {
+    if (useCache) {
+      const cachedData = metadataCache.get(cacheKey);
+      if (cachedData) {
+        return cachedData;
+      }
+    }
+
     const metadata = await fetchAndTransformMetadata(hash, 3, { type, id });
 
     if (metadata) {
-      metadataCache.set(cacheKey, metadata);
+      try {
+        metadataCache.set(cacheKey, metadata);
+      } catch (cacheError) {
+        console.warn(`Failed to cache metadata for ${type} ${id}:`, cacheError);
+      }
+      return metadata;
     }
 
-    return metadata;
+    return getDefaultMetadata(type, id);
   } catch (error) {
-    console.error(`Metadata fetch failed for ${type} ${id}:`, error);
-    return null;
+    console.error(
+      `Metadata fetch failed for ${type} ${id} with hash ${hash}:`,
+      {
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+      }
+    );
+    return getDefaultMetadata(type, id);
   }
+}
+
+function getDefaultMetadata(
+  type: "component" | "service" | "agent",
+  id: string
+) {
+  return {
+    name: null,
+    description: null,
+    image: null,
+    codeUri: null,
+    packageHash: null,
+    metadataURI: null,
+  };
 }
 
 metadataCache.on("error", (err) => {
@@ -152,7 +182,7 @@ interface MetadataJson {
   name?: string | null;
   description?: string | null;
   image?: string | null;
-  code_uri?: string | null;
+  codeUri?: string | null;
   packageHash?: string | null;
   metadataURI?: string;
 }
@@ -178,9 +208,9 @@ export const fetchAndTransformMetadata = async (
         name: data.name || null,
         description: data.description || null,
         image: data.image || null,
-        code_uri: data.code_uri || null,
+        codeUri: data.codeUri || null,
         packageHash: extractPackageHash(
-          data.code_uri ?? undefined,
+          data.codeUri ?? undefined,
           data.packageHash
         ),
         metadataURI: metadataURI,
@@ -230,9 +260,9 @@ function transformIpfsUrls(
     image: metadata.image?.startsWith("ipfs://")
       ? metadata.image.replace("ipfs://", gatewayUrl)
       : metadata.image,
-    code_uri: metadata.code_uri?.startsWith("ipfs://")
-      ? metadata.code_uri.replace("ipfs://", gatewayUrl)
-      : metadata.code_uri,
+    codeUri: metadata.codeUri?.startsWith("ipfs://")
+      ? metadata.codeUri.replace("ipfs://", gatewayUrl)
+      : metadata.codeUri,
     metadataURI: metadataURI,
   };
 }
