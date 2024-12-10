@@ -26,15 +26,15 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
     const existingAgent = await context.db.find(Agent, { id: agentId });
 
     const updateData = {
-      name: "",
-      description: "",
-      image: "",
-      codeUri: "",
+      name: null,
+      description: null,
+      image: null,
+      codeUri: null,
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
-      packageHash: "",
+      packageHash: null,
       metadataHash: event.args.unitHash,
-      metadataURI: "",
+      metadataURI: null,
     };
 
     if (existingAgent) {
@@ -100,15 +100,15 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
       await context.db.insert(Agent).values({
         id: agentId,
         operator: event.args.to.toString(),
-        name: "", // Default name
-        description: "", // Default description
-        image: "", // Default image
-        codeUri: "", // Default codeUri
+        name: null, // Default name
+        description: null, // Default description
+        image: null, // Default image
+        codeUri: null, // Default codeUri
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
-        packageHash: "", // Default packageHash
-        metadataHash: "", // Default metadataHash
-        metadataURI: "", // Default metadataURI
+        packageHash: null, // Default packageHash
+        metadataHash: null, // Default metadataHash
+        metadataURI: null, // Default metadataURI
       });
     }
   } catch (e) {
@@ -122,23 +122,22 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
     `Handling MainnetComponentRegistry:CreateUnit for component ${componentId}`
   );
 
-  const [metadataJson, existingComponent] = await Promise.all([
-    fetchAndEmbedMetadataWrapper(event.args.unitHash, componentId),
+  const [existingComponent] = await Promise.all([
     context.db.find(Component, { id: componentId }),
   ]);
 
   const componentData = {
     id: componentId,
     instance: "0x",
-    name: metadataJson?.name || "",
-    description: metadataJson?.description || "",
-    image: metadataJson?.image || "",
-    codeUri: metadataJson?.code_uri || "",
+    name: null,
+    description: null,
+    image: null,
+    codeUri: null,
     blockNumber: Number(event.block.number),
     timestamp: Number(event.block.timestamp),
-    packageHash: metadataJson?.packageHash || "",
+    packageHash: null,
     metadataHash: event.args.unitHash,
-    metadataURI: metadataJson?.metadataURI || "",
+    metadataURI: null,
   };
 
   try {
@@ -312,12 +311,12 @@ CONTRACT_NAMES.forEach((contractName) => {
       state: "UNREGISTERED" as const,
       blockNumber: Number(event.block.number),
       chainId: getChainId(chain),
-      name: "",
-      description: "",
-      image: "",
-      codeUri: "",
-      metadataURI: "",
-      packageHash: "",
+      name: null,
+      description: null,
+      image: null,
+      codeUri: null,
+      metadataURI: null,
+      packageHash: null,
       metadataHash: event.args.configHash,
       timestamp: Number(event.block.timestamp),
     };
