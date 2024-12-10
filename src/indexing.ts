@@ -272,15 +272,17 @@ ponder.on(
 CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
-    const serviceId = event.args.serviceId.toString().toLowerCase();
-    const cleanServiceId = serviceId.replace(/^service-/, "");
-    const chainScopedId = createChainScopedId(chain, cleanServiceId);
+
+    const serviceId = createChainScopedId(
+      chain,
+      event.args.serviceId.toString().toLowerCase()
+    );
     console.log(
-      `Handling ${contractName}:CreateService for service ${chainScopedId}`
+      `Handling ${contractName}:CreateService for service ${serviceId}`
     );
 
     const serviceData = {
-      id: chainScopedId,
+      id: serviceId,
       chain,
       securityDeposit: 0n,
       multisig: "0x",
@@ -301,7 +303,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       timestamp: Number(event.block.timestamp),
     };
     try {
-      console.log(`Inserting service ${chainScopedId}`);
+      console.log(`Inserting service ${serviceId}`);
       await context.db
         .insert(Service)
         .values({
@@ -311,10 +313,10 @@ CONTRACT_NAMES.forEach((contractName) => {
         .onConflictDoNothing();
     } catch (e) {
       console.error(
-        `Error inserting service ${chainScopedId}, attempting update`,
+        `Error inserting service ${serviceId}, attempting update`,
         e
       );
-      await context.db.update(Service, { id: chainScopedId }).set({
+      await context.db.update(Service, { id: serviceId }).set({
         ...serviceData,
         multisig: serviceData.multisig as `0x${string}`,
       });
@@ -323,18 +325,19 @@ CONTRACT_NAMES.forEach((contractName) => {
 
   ponder.on(`${contractName}:DeployService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
-    const serviceId = event.args.serviceId.toString().toLowerCase();
-    const cleanServiceId = serviceId.replace(/^service-/, "");
-    const chainScopedId = createChainScopedId(chain, cleanServiceId);
+    const serviceId = createChainScopedId(
+      chain,
+      event.args.serviceId.toString().toLowerCase()
+    );
     console.log(
-      `Handling ${contractName}:DeployService for service ${chainScopedId}`
+      `Handling ${contractName}:DeployService for service ${serviceId}`
     );
 
     try {
-      console.log(`Updating state to DEPLOYED for service ${chainScopedId}`);
+      console.log(`Updating state to DEPLOYED for service ${serviceId}`);
       await context.db
         .update(Service, {
-          id: chainScopedId,
+          id: serviceId,
         })
         .set({
           state: "DEPLOYED",
@@ -428,7 +431,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       console.log(`Updating state to TERMINATED for service ${serviceId}`);
       await context.db
         .update(Service, {
-          id: createChainScopedId(chain, serviceId),
+          id: serviceId,
         })
         .set({
           state: "TERMINATED",
@@ -442,7 +445,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     const chain = getChainName(contractName);
     const serviceId = createChainScopedId(
       chain,
-      event.args.serviceId.toString()
+      event.args.serviceId.toString().toLowerCase()
     );
     console.log(
       `Handling ${contractName}:UpdateService for service ${serviceId}`
