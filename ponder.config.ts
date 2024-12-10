@@ -33,6 +33,80 @@ export default createConfig({
       transport: http(process.env.PONDER_RPC_URL_8453),
     },
   },
+  accounts: {
+    MainnetRegisterInstance: {
+      network: "mainnet",
+      address: factory({
+        address: "0x48b6af7B12C71f09e2fC8aF4855De4Ff54e775cA",
+        event: getAbiItem({
+          abi: ServiceRegistryABI,
+          name: "RegisterInstance",
+        }),
+        parameter: "agentInstance",
+      }),
+      startBlock: 15178299,
+    },
+    PolygonRegisterInstance: {
+      network: "polygon",
+      address: factory({
+        address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
+        event: getAbiItem({
+          abi: ServiceRegistryABI,
+          name: "RegisterInstance",
+        }),
+        parameter: "agentInstance",
+      }),
+      startBlock: 41783952,
+    },
+    GnosisRegisterInstance: {
+      network: "gnosis",
+      address: factory({
+        address: "0x9338b5153AE39BB89f50468E608eD9d764B755fD",
+        event: getAbiItem({
+          abi: ServiceRegistryABI,
+          name: "RegisterInstance",
+        }),
+        parameter: "agentInstance",
+      }),
+      startBlock: 27871084,
+    },
+    ArbitrumRegisterInstance: {
+      network: "arbitrum",
+      address: factory({
+        address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
+        event: getAbiItem({
+          abi: ServiceRegistryABI,
+          name: "RegisterInstance",
+        }),
+        parameter: "agentInstance",
+      }),
+      startBlock: 174008819,
+    },
+    OptimismRegisterInstance: {
+      network: "optimism",
+      address: factory({
+        address: "0x3d77596beb0f130a4415df3D2D8232B3d3D31e44",
+        event: getAbiItem({
+          abi: ServiceRegistryABI,
+          name: "RegisterInstance",
+        }),
+        parameter: "agentInstance",
+      }),
+      startBlock: 116423039,
+    },
+    BaseRegisterInstance: {
+      network: "base",
+      address: factory({
+        address: "0x3C1fF68f5aa342D296d4DEe4Bb1cACCA912D95fE",
+        event: getAbiItem({
+          abi: ServiceRegistryABI,
+          name: "RegisterInstance",
+        }),
+        parameter: "agentInstance",
+      }),
+      startBlock: 10827380,
+    },
+  },
   contracts: {
     MainnetStaking: {
       network: "mainnet",
@@ -81,90 +155,6 @@ export default createConfig({
       abi: ComponentRegistryABI,
       address: "0x15bd56669F57192a97dF41A2aa8f4403e9491776",
       startBlock: 15178253,
-    },
-    MainnetRegisterInstance: {
-      abi: GnosisSafeABI,
-      network: "mainnet",
-      address: factory({
-        address: "0x48b6af7B12C71f09e2fC8aF4855De4Ff54e775cA",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 15178299,
-      includeTransactionReceipts: true,
-    },
-    PolygonRegisterInstance: {
-      abi: GnosisSafeABI,
-      network: "polygon",
-      address: factory({
-        address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 41783952,
-      includeTransactionReceipts: true,
-    },
-    GnosisRegisterInstance: {
-      abi: GnosisSafeABI,
-      network: "gnosis",
-      address: factory({
-        address: "0x9338b5153AE39BB89f50468E608eD9d764B755fD",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 27871084,
-      includeTransactionReceipts: true,
-    },
-    ArbitrumRegisterInstance: {
-      abi: GnosisSafeABI,
-      network: "arbitrum",
-      address: factory({
-        address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 174008819,
-      includeTransactionReceipts: true,
-    },
-    OptimismRegisterInstance: {
-      abi: GnosisSafeABI,
-      network: "optimism",
-      address: factory({
-        address: "0x3d77596beb0f130a4415df3D2D8232B3d3D31e44",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 116423039,
-      includeTransactionReceipts: true,
-    },
-    BaseRegisterInstance: {
-      abi: GnosisSafeABI,
-      network: "base",
-      address: factory({
-        address: "0x3C1fF68f5aa342D296d4DEe4Bb1cACCA912D95fE",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 10827380,
-      includeTransactionReceipts: true,
     },
   },
   database: {

@@ -189,3 +189,56 @@ export const AgentInstanceRelations = relations(AgentInstance, ({ one }) => ({
     references: [Agent.id],
   }),
 }));
+
+export const Transaction = onchainTable(
+  "transaction",
+  (t) => ({
+    id: t.text().primaryKey(),
+    hash: t.text().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+    from: t.text().notNull(),
+    to: t.text(),
+    value: t.bigint(),
+    gasUsed: t.integer(),
+    gasPrice: t.bigint(),
+    inputData: t.text(),
+  }),
+  (table) => ({
+    idx: index().on(table.id),
+    hashIdx: index().on(table.hash),
+    fromIdx: index().on(table.from),
+    toIdx: index().on(table.to),
+    blockNumberIdx: index().on(table.blockNumber),
+    timestampIdx: index().on(table.timestamp),
+  })
+);
+
+export const Transfer = onchainTable(
+  "transfer",
+  (t) => ({
+    id: t.text().primaryKey(),
+    hash: t.text().notNull(),
+    from: t.text().notNull(),
+    to: t.text().notNull(),
+    value: t.bigint().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+  }),
+  (table) => ({
+    idx: index().on(table.id),
+    hashIdx: index().on(table.hash),
+    fromIdx: index().on(table.from),
+    toIdx: index().on(table.to),
+    blockNumberIdx: index().on(table.blockNumber),
+    timestampIdx: index().on(table.timestamp),
+  })
+);
+
+// Relations for Transfer
+export const TransferRelations = relations(Transfer, ({ one }) => ({
+  transaction: one(Transaction, {
+    fields: [Transfer.hash],
+    references: [Transaction.hash],
+  }),
+}));
