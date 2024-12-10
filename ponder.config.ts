@@ -4,7 +4,6 @@ import { getAbiItem, http, parseAbiItem } from "viem";
 import { ServiceRegistryABI } from "./abis/ServiceRegistryABI";
 import { AgentRegistryABI } from "./abis/AgentRegistry";
 import { ComponentRegistryABI } from "./abis/ComponentRegistry";
-import { GnosisSafeABI } from "./abis/GnosisSafe";
 
 export default createConfig({
   networks: {
@@ -44,7 +43,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 18900000,
+      startBlock: 19500000,
     },
     PolygonRegisterInstance: {
       network: "polygon",
@@ -68,7 +67,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 32000000,
+      startBlock: 33000000,
     },
     ArbitrumRegisterInstance: {
       network: "arbitrum",
@@ -104,7 +103,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 9000000,
+      startBlock: 11500000,
     },
   },
   contracts: {
