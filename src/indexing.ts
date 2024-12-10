@@ -17,6 +17,34 @@ import {
   getChainName,
 } from "../utils";
 
+const createDefaultService = (
+  serviceId: string,
+  chain: string,
+  blockNumber: number,
+  timestamp: number,
+  configHash?: string | null
+) => ({
+  id: serviceId,
+  chain,
+  securityDeposit: 0n,
+  multisig: "0x" as `0x${string}`,
+  configHash,
+  threshold: 0,
+  maxNumAgentInstances: 0,
+  numAgentInstances: 0,
+  state: "UNREGISTERED" as const,
+  blockNumber,
+  chainId: getChainId(chain),
+  name: null,
+  description: null,
+  image: null,
+  codeUri: null,
+  metadataURI: null,
+  packageHash: null,
+  metadataHash: configHash,
+  timestamp,
+});
+
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
   console.log(`Handling MainnetAgentRegistry:CreateUnit for agent ${agentId}`);
@@ -334,16 +362,25 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
 
     try {
-      console.log(`Updating state to DEPLOYED for service ${serviceId}`);
       await context.db
-        .update(Service, {
-          id: serviceId,
-        })
-        .set({
-          state: "DEPLOYED",
-        });
+        .update(Service, { id: serviceId })
+        .set({ state: "DEPLOYED" });
     } catch (e) {
-      console.error("Error in DeployService handler:", e);
+      console.error("Error updating service, attempting creation:", e);
+      try {
+        const defaultService = createDefaultService(
+          serviceId,
+          chain,
+          Number(event.block.number),
+          Number(event.block.timestamp)
+        );
+        await context.db
+          .insert(Service)
+          .values({ ...defaultService, state: "DEPLOYED" })
+          .onConflictDoUpdate({ state: "DEPLOYED" });
+      } catch (insertError) {
+        console.error("Error in DeployService fallback handler:", insertError);
+      }
     }
   });
 
@@ -360,12 +397,28 @@ CONTRACT_NAMES.forEach((contractName) => {
       );
 
       try {
-        console.log(`Updating multisig for service ${serviceId}`);
-        await context.db.update(Service, { id: serviceId }).set({
-          multisig: event.args.multisig,
-        });
+        await context.db
+          .update(Service, { id: serviceId })
+          .set({ multisig: event.args.multisig });
       } catch (e) {
-        console.error("Error in CreateMultisigWithAgents handler:", e);
+        console.error("Error updating service, attempting creation:", e);
+        try {
+          const defaultService = createDefaultService(
+            serviceId,
+            chain,
+            Number(event.block.number),
+            Number(event.block.timestamp)
+          );
+          await context.db
+            .insert(Service)
+            .values({ ...defaultService, multisig: event.args.multisig })
+            .onConflictDoUpdate({ multisig: event.args.multisig });
+        } catch (insertError) {
+          console.error(
+            "Error in CreateMultisigWithAgents fallback handler:",
+            insertError
+          );
+        }
       }
     }
   );
@@ -382,7 +435,6 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
 
     try {
-      console.log(`Inserting agent instance for ${agentId}`);
       await context.db
         .insert(AgentInstance)
         .values({
@@ -393,17 +445,30 @@ CONTRACT_NAMES.forEach((contractName) => {
           timestamp: Number(event.block.timestamp),
         })
         .onConflictDoNothing();
-
-      console.log(`Updating state to REGISTERED for service ${serviceId}`);
       try {
-        await context.db.update(Service, { id: serviceId }).set({
-          state: "REGISTERED",
-        });
+        await context.db
+          .update(Service, { id: serviceId })
+          .set({ state: "REGISTERED" });
       } catch (e) {
-        console.error("Error in RegisterInstance handler:", e);
+        console.error("Error updating service, attempting creation:", e);
+        try {
+          const defaultService = createDefaultService(
+            serviceId,
+            chain,
+            Number(event.block.number),
+            Number(event.block.timestamp)
+          );
+          await context.db
+            .insert(Service)
+            .values({ ...defaultService, state: "REGISTERED" })
+            .onConflictDoUpdate({ state: "REGISTERED" });
+        } catch (insertError) {
+          console.error(
+            "Error in RegisterInstance fallback handler:",
+            insertError
+          );
+        }
       }
-
-      console.log(`Inserting service agent for ${serviceId}`);
       await context.db
         .insert(ServiceAgent)
         .values({
@@ -413,7 +478,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         })
         .onConflictDoNothing();
     } catch (e) {
-      console.error("Error in RegisterInstance handler:", e);
+      console.error("Error updating service, attempting creation:", e);
     }
   });
 
@@ -428,16 +493,28 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
 
     try {
-      console.log(`Updating state to TERMINATED for service ${serviceId}`);
       await context.db
-        .update(Service, {
-          id: serviceId,
-        })
-        .set({
-          state: "TERMINATED",
-        });
+        .update(Service, { id: serviceId })
+        .set({ state: "TERMINATED" });
     } catch (e) {
-      console.error("Error in TerminateService handler:", e);
+      console.error("Error updating service, attempting creation:", e);
+      try {
+        const defaultService = createDefaultService(
+          serviceId,
+          chain,
+          Number(event.block.number),
+          Number(event.block.timestamp)
+        );
+        await context.db
+          .insert(Service)
+          .values({ ...defaultService, state: "TERMINATED" })
+          .onConflictDoUpdate({ state: "TERMINATED" });
+      } catch (insertError) {
+        console.error(
+          "Error in TerminateService fallback handler:",
+          insertError
+        );
+      }
     }
   });
 
@@ -451,22 +528,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       `Handling ${contractName}:UpdateService for service ${serviceId}`
     );
 
-    // const metadataJson = await fetchMetadata(
-    //   event.args.configHash,
-    //   serviceId,
-    //   "service",
-    //   false
-    // );
-
-    // if (!metadataJson) {
-    //   console.warn(`No metadata found for service ${serviceId}`);
-    //   return;
-    // }
-
-    // const packageHash = metadataJson?.packageHash;
-
     try {
-      console.log(`Updating metadata for service ${serviceId}`);
       await context.db.update(Service, { id: serviceId }).set({
         metadata: {},
         metadataURI: "",
@@ -474,7 +536,32 @@ CONTRACT_NAMES.forEach((contractName) => {
         metadataHash: event.args.configHash,
       });
     } catch (e) {
-      console.error("Error in UpdateService handler:", e);
+      console.error("Error updating service, attempting creation:", e);
+      try {
+        const defaultService = createDefaultService(
+          serviceId,
+          chain,
+          Number(event.block.number),
+          Number(event.block.timestamp),
+          event.args.configHash
+        );
+        await context.db
+          .insert(Service)
+          .values({
+            ...defaultService,
+            metadata: {},
+            metadataURI: "",
+            packageHash: "",
+          })
+          .onConflictDoUpdate({
+            metadata: {},
+            metadataURI: "",
+            packageHash: "",
+            metadataHash: event.args.configHash,
+          });
+      } catch (insertError) {
+        console.error("Error in UpdateService fallback handler:", insertError);
+      }
     }
   });
 });
