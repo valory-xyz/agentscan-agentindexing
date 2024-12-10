@@ -4,11 +4,18 @@ import { REGISTER_NAMES } from "../utils";
 
 REGISTER_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:transaction:from`, async ({ event, context }) => {
-    console.log(`Handling ${contractName}:transaction:from event`, event);
+    console.log(`Handling ${contractName}:transaction:from event`);
     try {
-      console.log(
-        `Inserting transaction from ${event.transaction.from} to ${event.transaction.to}`
-      );
+      console.log("Full Transaction Details:", {
+        from: event.transaction.from,
+        to: event.transaction.to,
+        value: event.transaction.value,
+        input: event.transaction.input,
+        gas: event.transaction.gas,
+        nonce: event.transaction.nonce,
+        hash: event.transaction.hash,
+      });
+
       await context.db.insert(Transaction).values({
         id: event.transaction.hash,
         blockNumber: Number(event.block.number),
@@ -17,7 +24,15 @@ REGISTER_NAMES.forEach((contractName) => {
         to: event.transaction.to ? event.transaction.to.toString() : "",
         value: BigInt(event.transaction.value),
         hash: event.transaction.hash,
+        input: event.transaction.input,
+        gasUsed: event.transactionReceipt
+          ? Number(event.transactionReceipt.gasUsed)
+          : undefined,
+        gasPrice: event.transaction.gasPrice
+          ? BigInt(event.transaction.gasPrice)
+          : undefined,
       });
+
       console.log(
         `Transaction inserted successfully: ${event.transaction.hash}`
       );
@@ -29,9 +44,10 @@ REGISTER_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:transaction:to`, async ({ event, context }) => {
     console.log(`Handling ${contractName}:transaction:to event`, event);
     try {
-      console.log(
-        `Inserting transaction from ${event.transaction.from} to ${event.transaction.to}`
-      );
+      console.log("Transaction details:", {
+        transaction: event.transaction,
+        transactionReceipt: event.transactionReceipt,
+      });
       await context.db.insert(Transaction).values({
         id: event.transaction.hash,
         blockNumber: Number(event.block.number),
@@ -40,6 +56,7 @@ REGISTER_NAMES.forEach((contractName) => {
         to: event.transaction.to ? event.transaction.to.toString() : "",
         value: BigInt(event.transaction.value),
         hash: event.transaction.hash,
+        input: event.transaction.input,
       });
       console.log(
         `Transaction inserted successfully: ${event.transaction.hash}`
@@ -57,14 +74,15 @@ REGISTER_NAMES.forEach((contractName) => {
         console.log(
           `Inserting transfer from ${event.transaction.from} to ${event.transaction.to}`
         );
-        await context.db.insert(Transfer).values({
-          id: transferId,
-          hash: event.transaction.hash,
+        await context.db.insert(Transaction).values({
+          id: event.transaction.hash,
           blockNumber: Number(event.block.number),
           timestamp: Number(event.block.timestamp),
           from: event.transaction.from.toString(),
-          to: event.transaction.to?.toString(),
+          to: event.transaction.to ? event.transaction.to.toString() : "",
           value: BigInt(event.transaction.value),
+          hash: event.transaction.hash,
+          input: event.transaction.input,
         });
         console.log(`Transfer inserted successfully: ${transferId}`);
       }

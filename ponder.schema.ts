@@ -200,9 +200,7 @@ export const Transaction = onchainTable(
     from: t.text().notNull(),
     to: t.text(),
     value: t.bigint(),
-    gasUsed: t.integer(),
-    gasPrice: t.bigint(),
-    inputData: t.text(),
+    input: t.text(),
   }),
   (table) => ({
     idx: index().on(table.id),
@@ -211,6 +209,7 @@ export const Transaction = onchainTable(
     toIdx: index().on(table.to),
     blockNumberIdx: index().on(table.blockNumber),
     timestampIdx: index().on(table.timestamp),
+    inputIdx: index().on(table.input),
   })
 );
 
