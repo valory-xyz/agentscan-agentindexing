@@ -1,4 +1,4 @@
-import { createConfig, factory } from "ponder";
+import { createConfig, factory, loadBalance } from "ponder";
 import { getAbiItem, http, parseAbiItem } from "viem";
 
 import { ServiceRegistryABI } from "./abis/ServiceRegistryABI";
@@ -17,7 +17,7 @@ export default createConfig({
     },
     gnosis: {
       chainId: 100,
-      transport: http(process.env.PONDER_RPC_URL_100),
+      transport: loadBalance([http(process.env.PONDER_RPC_URL_100_BACKUP)]),
     },
     arbitrum: {
       chainId: 42161,
