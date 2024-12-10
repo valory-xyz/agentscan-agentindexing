@@ -146,107 +146,107 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
   }
 });
 
-ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
-  const componentId = event.args.unitId.toString();
-  console.log(
-    `Handling MainnetComponentRegistry:CreateUnit for component ${componentId}`
-  );
-  const [metadataJson] = await Promise.all([
-    fetchMetadata(event.args.unitHash, componentId, "component", true),
-  ]);
+// ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
+//   const componentId = event.args.unitId.toString();
+//   console.log(
+//     `Handling MainnetComponentRegistry:CreateUnit for component ${componentId}`
+//   );
+//   const [metadataJson] = await Promise.all([
+//     fetchMetadata(event.args.unitHash, componentId, "component", true),
+//   ]);
 
-  const componentData = {
-    id: componentId,
-    instance: "0x",
-    name: metadataJson?.name,
-    description: metadataJson?.description,
-    image: metadataJson?.image,
-    codeUri: metadataJson?.codeUri,
-    blockNumber: Number(event.block.number),
-    timestamp: Number(event.block.timestamp),
-    packageHash: metadataJson?.packageHash,
-    metadataHash: event.args.unitHash,
-    metadataURI: metadataJson?.metadataURI,
-  };
+//   const componentData = {
+//     id: componentId,
+//     instance: "0x",
+//     name: metadataJson?.name,
+//     description: metadataJson?.description,
+//     image: metadataJson?.image,
+//     codeUri: metadataJson?.codeUri,
+//     blockNumber: Number(event.block.number),
+//     timestamp: Number(event.block.timestamp),
+//     packageHash: metadataJson?.packageHash,
+//     metadataHash: event.args.unitHash,
+//     metadataURI: metadataJson?.metadataURI,
+//   };
 
-  await context.db
-    .insert(Component)
-    .values(componentData)
-    .onConflictDoUpdate({
-      ...componentData,
-      timestamp: Number(event.block.timestamp),
-    });
+//   await context.db
+//     .insert(Component)
+//     .values(componentData)
+//     .onConflictDoUpdate({
+//       ...componentData,
+//       timestamp: Number(event.block.timestamp),
+//     });
 
-  try {
-    const { client } = context;
+//   try {
+//     const { client } = context;
 
-    const { MainnetComponentRegistry } = context.contracts;
-    const dependencies = await client.readContract({
-      abi: MainnetComponentRegistry.abi,
-      address: MainnetComponentRegistry.address,
-      functionName: "getDependencies",
-      args: [event.args.unitId],
-    });
+//     const { MainnetComponentRegistry } = context.contracts;
+//     const dependencies = await client.readContract({
+//       abi: MainnetComponentRegistry.abi,
+//       address: MainnetComponentRegistry.address,
+//       functionName: "getDependencies",
+//       args: [event.args.unitId],
+//     });
 
-    if (
-      dependencies &&
-      Array.isArray(dependencies) &&
-      dependencies.length === 2
-    ) {
-      const dependencyArray = dependencies[1];
-      if (Array.isArray(dependencyArray) && dependencyArray.length > 0) {
-        const validDependencies = dependencyArray
-          .map((dep) => dep.toString())
-          .filter((dep) => dep !== "")
-          .map((dependency) => ({
-            id: `${componentId}-${dependency}`,
-            componentId,
-            dependencyId: dependency,
-          }));
+//     if (
+//       dependencies &&
+//       Array.isArray(dependencies) &&
+//       dependencies.length === 2
+//     ) {
+//       const dependencyArray = dependencies[1];
+//       if (Array.isArray(dependencyArray) && dependencyArray.length > 0) {
+//         const validDependencies = dependencyArray
+//           .map((dep) => dep.toString())
+//           .filter((dep) => dep !== "")
+//           .map((dependency) => ({
+//             id: `${componentId}-${dependency}`,
+//             componentId,
+//             dependencyId: dependency,
+//           }));
 
-        if (validDependencies.length > 0) {
-          console.log(`Inserting dependencies for component ${componentId}`);
-          await context.db
-            .insert(ComponentDependency)
-            .values(validDependencies)
-            .onConflictDoNothing();
-        }
-      }
-    }
-  } catch (e) {
-    console.error("Error processing dependencies for component:", e);
-  }
-});
+//         if (validDependencies.length > 0) {
+//           console.log(`Inserting dependencies for component ${componentId}`);
+//           await context.db
+//             .insert(ComponentDependency)
+//             .values(validDependencies)
+//             .onConflictDoNothing();
+//         }
+//       }
+//     }
+//   } catch (e) {
+//     console.error("Error processing dependencies for component:", e);
+//   }
+// });
 
-ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
-  const componentId = event.args.id.toString();
-  console.log(
-    `Handling MainnetComponentRegistry:Transfer for component ${componentId}`
-  );
+// ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
+//   const componentId = event.args.id.toString();
+//   console.log(
+//     `Handling MainnetComponentRegistry:Transfer for component ${componentId}`
+//   );
 
-  try {
-    console.log(`Updating instance for component ${componentId}`);
-    await context.db
-      .update(Component, {
-        id: componentId,
-      })
-      .set({
-        instance: event.args.to,
-      });
-  } catch (e) {
-    console.error("Error in ComponentRegistry:Transfer:", e);
-    try {
-      await context.db.insert(Component).values({
-        id: componentId,
-        instance: event.args.to,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      });
-    } catch (e) {
-      console.error("Error inserting new component:", e);
-    }
-  }
-});
+//   try {
+//     console.log(`Updating instance for component ${componentId}`);
+//     await context.db
+//       .update(Component, {
+//         id: componentId,
+//       })
+//       .set({
+//         instance: event.args.to,
+//       });
+//   } catch (e) {
+//     console.error("Error in ComponentRegistry:Transfer:", e);
+//     try {
+//       await context.db.insert(Component).values({
+//         id: componentId,
+//         instance: event.args.to,
+//         blockNumber: Number(event.block.number),
+//         timestamp: Number(event.block.timestamp),
+//       });
+//     } catch (e) {
+//       console.error("Error inserting new component:", e);
+//     }
+//   }
+// });
 
 ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
@@ -279,39 +279,39 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   }
 });
 
-ponder.on(
-  `MainnetComponentRegistry:UpdateUnitHash`,
-  async ({ event, context }) => {
-    const componentId = event.args.unitId.toString();
-    console.log(
-      `Handling MainnetComponentRegistry:UpdateUnitHash for component ${componentId}`
-    );
+// ponder.on(
+//   `MainnetComponentRegistry:UpdateUnitHash`,
+//   async ({ event, context }) => {
+//     const componentId = event.args.unitId.toString();
+//     console.log(
+//       `Handling MainnetComponentRegistry:UpdateUnitHash for component ${componentId}`
+//     );
 
-    const metadataJson = await fetchMetadata(
-      event.args.unitHash,
-      componentId,
-      "component",
-      false
-    );
+//     const metadataJson = await fetchMetadata(
+//       event.args.unitHash,
+//       componentId,
+//       "component",
+//       false
+//     );
 
-    try {
-      console.log(`Updating metadata for component ${componentId}`);
-      await context.db.update(Component, { id: componentId }).set({
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        packageHash: metadataJson?.packageHash,
-        metadataHash: event.args.unitHash,
-        metadataURI: metadataJson?.metadataURI,
-        name: metadataJson?.name,
-        description: metadataJson?.description,
-        image: metadataJson?.image,
-        codeUri: metadataJson?.codeUri,
-      });
-    } catch (e) {
-      console.error("Error in UpdateUnitHash handler for Component:", e);
-    }
-  }
-);
+//     try {
+//       console.log(`Updating metadata for component ${componentId}`);
+//       await context.db.update(Component, { id: componentId }).set({
+//         blockNumber: Number(event.block.number),
+//         timestamp: Number(event.block.timestamp),
+//         packageHash: metadataJson?.packageHash,
+//         metadataHash: event.args.unitHash,
+//         metadataURI: metadataJson?.metadataURI,
+//         name: metadataJson?.name,
+//         description: metadataJson?.description,
+//         image: metadataJson?.image,
+//         codeUri: metadataJson?.codeUri,
+//       });
+//     } catch (e) {
+//       console.error("Error in UpdateUnitHash handler for Component:", e);
+//     }
+//   }
+// );
 
 CONTRACT_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
