@@ -23,8 +23,6 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   console.log(`Handling MainnetAgentRegistry:CreateUnit for agent ${agentId}`);
 
   await withErrorBoundary(async () => {
-    const existingAgent = await context.db.find(Agent, { id: agentId });
-
     const updateData = {
       name: null,
       description: null,
@@ -37,11 +35,11 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
       metadataURI: null,
     };
 
-    if (existingAgent) {
+    try {
       console.log(`Updating existing agent ${agentId}`);
       await context.db.update(Agent, { id: agentId }).set(updateData);
-    } else {
-      console.log(`Inserting new agent ${agentId}`);
+    } catch (e) {
+      console.error("Error updating existing agent:", e);
       await context.db.insert(Agent).values({
         id: agentId,
         ...updateData,
@@ -88,15 +86,13 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
   console.log(`Handling MainnetAgentRegistry:Transfer for agent ${agentId}`);
 
   try {
-    const existingAgent = await context.db.find(Agent, { id: agentId });
-
-    if (existingAgent) {
-      console.log(`Updating operator for agent ${agentId}`);
-      await context.db.update(Agent, { id: agentId }).set({
-        operator: event.args.to.toString(),
-      });
-    } else {
-      console.log(`Inserting new agent with default data for ${agentId}`);
+    console.log(`Updating operator for agent ${agentId}`);
+    await context.db.update(Agent, { id: agentId }).set({
+      operator: event.args.to.toString(),
+    });
+  } catch (e) {
+    console.error("Error in AgentRegistry:Transfer:", e);
+    try {
       await context.db.insert(Agent).values({
         id: agentId,
         operator: event.args.to.toString(),
@@ -110,9 +106,9 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
         metadataHash: null, // Default metadataHash
         metadataURI: null, // Default metadataURI
       });
+    } catch (e) {
+      console.error("Error inserting new agent:", e);
     }
-  } catch (e) {
-    console.error("Error in AgentRegistry:Transfer:", e);
   }
 });
 
@@ -121,10 +117,6 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
   console.log(
     `Handling MainnetComponentRegistry:CreateUnit for component ${componentId}`
   );
-
-  const [existingComponent] = await Promise.all([
-    context.db.find(Component, { id: componentId }),
-  ]);
 
   const componentData = {
     id: componentId,
@@ -141,17 +133,15 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
   };
 
   try {
-    if (existingComponent) {
-      console.log(`Updating existing component ${componentId}`);
-      await context.db
-        .update(Component, { id: componentId })
-        .set(componentData);
-    } else {
-      console.log(`Inserting new component ${componentId}`);
-      await context.db.insert(Component).values(componentData);
-    }
+    console.log(`Updating existing component ${componentId}`);
+    await context.db.update(Component, { id: componentId }).set(componentData);
   } catch (e) {
     console.error("Error in ComponentRegistry:CreateUnit:", e);
+    try {
+      await context.db.insert(Component).values(componentData);
+    } catch (e) {
+      console.error("Error inserting new component:", e);
+    }
   }
 
   try {
@@ -201,32 +191,26 @@ ponder.on(`MainnetComponentRegistry:Transfer`, async ({ event, context }) => {
   );
 
   try {
-    const existingComponent = await context.db.find(Component, {
-      id: componentId,
-    });
-
-    if (existingComponent) {
-      console.log(`Updating instance for component ${componentId}`);
-      await context.db
-        .update(Component, {
-          id: componentId,
-        })
-        .set({
-          instance: event.args.to,
-        });
-    } else {
-      console.log(
-        `Component not found, inserting new component with minimal data for ${componentId}`
-      );
+    console.log(`Updating instance for component ${componentId}`);
+    await context.db
+      .update(Component, {
+        id: componentId,
+      })
+      .set({
+        instance: event.args.to,
+      });
+  } catch (e) {
+    console.error("Error in ComponentRegistry:Transfer:", e);
+    try {
       await context.db.insert(Component).values({
         id: componentId,
         instance: event.args.to,
         blockNumber: Number(event.block.number),
         timestamp: Number(event.block.timestamp),
       });
+    } catch (e) {
+      console.error("Error inserting new component:", e);
     }
-  } catch (e) {
-    console.error("Error in ComponentRegistry:Transfer:", e);
   }
 });
 
@@ -348,19 +332,14 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
 
     try {
-      const service = await context.db.find(Service, { id: chainScopedId });
-      if (service) {
-        console.log(`Updating state to DEPLOYED for service ${chainScopedId}`);
-        await context.db
-          .update(Service, {
-            id: chainScopedId,
-          })
-          .set({
-            state: "DEPLOYED",
-          });
-      } else {
-        console.warn(`Service not found: ${chainScopedId}`);
-      }
+      console.log(`Updating state to DEPLOYED for service ${chainScopedId}`);
+      await context.db
+        .update(Service, {
+          id: chainScopedId,
+        })
+        .set({
+          state: "DEPLOYED",
+        });
     } catch (e) {
       console.error("Error in DeployService handler:", e);
     }
@@ -410,12 +389,13 @@ CONTRACT_NAMES.forEach((contractName) => {
         timestamp: Number(event.block.timestamp),
       });
 
-      const service = await context.db.find(Service, { id: serviceId });
-      if (service) {
-        console.log(`Updating state to REGISTERED for service ${serviceId}`);
+      console.log(`Updating state to REGISTERED for service ${serviceId}`);
+      try {
         await context.db.update(Service, { id: serviceId }).set({
           state: "REGISTERED",
         });
+      } catch (e) {
+        console.error("Error in RegisterInstance handler:", e);
       }
 
       console.log(`Inserting service agent for ${serviceId}`);
