@@ -21,20 +21,20 @@ export const createChainScopedId = (
 
 export const REGISTER_NAMES = [
   "MainnetRegisterInstance",
-  "PolygonRegisterInstance",
+  // "PolygonRegisterInstance",
   "GnosisRegisterInstance",
-  "ArbitrumRegisterInstance",
-  "OptimismRegisterInstance",
+  // "ArbitrumRegisterInstance",
+  // "OptimismRegisterInstance",
   "BaseRegisterInstance",
 ] as const;
 
 // List all contract names
 export const CONTRACT_NAMES = [
   "MainnetStaking",
-  "PolygonRegistry",
+  // "PolygonRegistry",
   "GnosisRegistry",
-  "ArbitrumRegistry",
-  "OptimismRegistry",
+  // "ArbitrumRegistry",
+  // "OptimismRegistry",
   "BaseRegistry",
   // "CeloRegistry",
   // "ModeRegistry",
