@@ -5,113 +5,107 @@ import { REGISTER_NAMES } from "../utils";
 REGISTER_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:transaction:from`, async ({ event, context }) => {
     console.log(`Handling ${contractName}:transaction:from event`);
-    try {
-      console.log("Full Transaction Details:", {
-        from: event.transaction.from,
-        to: event.transaction.to,
-        value: event.transaction.value,
-        input: event.transaction.input,
-        gas: event.transaction.gas,
-        nonce: event.transaction.nonce,
-        hash: event.transaction.hash,
+
+    const transactionData = {
+      id: event.transaction.hash,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
+      from: event.transaction.from.toString(),
+      to: event.transaction.to ? event.transaction.to.toString() : "",
+      value: BigInt(event.transaction.value),
+      hash: event.transaction.hash,
+      input: event.transaction.input,
+      gasUsed: event.transactionReceipt
+        ? Number(event.transactionReceipt.gasUsed)
+        : undefined,
+      gasPrice: event.transaction.gasPrice
+        ? BigInt(event.transaction.gasPrice)
+        : undefined,
+    };
+
+    await context.db
+      .insert(Transaction)
+      .values(transactionData)
+      .onConflictDoUpdate({
+        ...transactionData,
       });
 
-      await context.db.insert(Transaction).values({
-        id: event.transaction.hash,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        from: event.transaction.from.toString(),
-        to: event.transaction.to ? event.transaction.to.toString() : "",
-        value: BigInt(event.transaction.value),
-        hash: event.transaction.hash,
-        input: event.transaction.input,
-        gasUsed: event.transactionReceipt
-          ? Number(event.transactionReceipt.gasUsed)
-          : undefined,
-        gasPrice: event.transaction.gasPrice
-          ? BigInt(event.transaction.gasPrice)
-          : undefined,
-      });
-
-      console.log(
-        `Transaction inserted successfully: ${event.transaction.hash}`
-      );
-    } catch (e) {
-      console.error("Error in InstanceTransaction handler:", e);
-    }
+    console.log(`Transaction processed: ${event.transaction.hash}`);
   });
 
   ponder.on(`${contractName}:transaction:to`, async ({ event, context }) => {
-    console.log(`Handling ${contractName}:transaction:to event`, event);
-    try {
-      console.log("Transaction details:", {
-        transaction: event.transaction,
-        transactionReceipt: event.transactionReceipt,
+    console.log(`Handling ${contractName}:transaction:to event`);
+
+    const transactionData = {
+      id: event.transaction.hash,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
+      from: event.transaction.from.toString(),
+      to: event.transaction.to ? event.transaction.to.toString() : "",
+      value: BigInt(event.transaction.value),
+      hash: event.transaction.hash,
+      input: event.transaction.input,
+    };
+
+    await context.db
+      .insert(Transaction)
+      .values(transactionData)
+      .onConflictDoUpdate({
+        ...transactionData,
       });
-      await context.db.insert(Transaction).values({
-        id: event.transaction.hash,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        from: event.transaction.from.toString(),
-        to: event.transaction.to ? event.transaction.to.toString() : "",
-        value: BigInt(event.transaction.value),
-        hash: event.transaction.hash,
-        input: event.transaction.input,
-      });
-      console.log(
-        `Transaction inserted successfully: ${event.transaction.hash}`
-      );
-    } catch (e) {
-      console.error("Error in InstanceTransaction handler:", e);
-    }
+
+    console.log(`Transaction processed: ${event.transaction.hash}`);
   });
 
   ponder.on(`${contractName}:transfer:to`, async ({ event, context }) => {
-    console.log(`Handling ${contractName}:transfer:to event`, event);
-    const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
-    try {
-      if (event.transaction.to) {
-        console.log(
-          `Inserting transfer from ${event.transaction.from} to ${event.transaction.to}`
-        );
-        await context.db.insert(Transaction).values({
-          id: event.transaction.hash,
-          blockNumber: Number(event.block.number),
-          timestamp: Number(event.block.timestamp),
-          from: event.transaction.from.toString(),
-          to: event.transaction.to ? event.transaction.to.toString() : "",
-          value: BigInt(event.transaction.value),
-          hash: event.transaction.hash,
-          input: event.transaction.input,
-        });
-        console.log(`Transfer inserted successfully: ${transferId}`);
-      }
-    } catch (e) {
-      console.error("Error in Transfer handler:", e);
-    }
+    console.log(`Handling ${contractName}:transfer:to event`);
+
+    if (!event.transaction.to) return;
+
+    const transactionData = {
+      id: event.transaction.hash,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
+      from: event.transaction.from.toString(),
+      to: event.transaction.to.toString(),
+      value: BigInt(event.transaction.value),
+      hash: event.transaction.hash,
+      input: event.transaction.input,
+    };
+
+    await context.db
+      .insert(Transaction)
+      .values(transactionData)
+      .onConflictDoUpdate({
+        ...transactionData,
+      });
+
+    console.log(`Transfer transaction processed: ${event.transaction.hash}`);
   });
 
   ponder.on(`${contractName}:transfer:from`, async ({ event, context }) => {
-    console.log(`Handling ${contractName}:transfer:from event`, event);
-    try {
-      const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
-      if (event.transaction.to && event.transaction.from) {
-        console.log(
-          `Inserting transfer from ${event.transaction.from} to ${event.transaction.to}`
-        );
-        await context.db.insert(Transfer).values({
-          id: transferId,
-          hash: event.transaction.hash,
-          blockNumber: Number(event.block.number),
-          timestamp: Number(event.block.timestamp),
-          from: event.transaction.from.toString(),
-          to: event.transaction.to.toString(),
-          value: BigInt(event.transaction.value),
-        });
-        console.log(`Transfer inserted successfully: ${transferId}`);
-      }
-    } catch (e) {
-      console.error("Error in Transfer handler:", e);
-    }
+    console.log(`Handling ${contractName}:transfer:from event`);
+
+    if (!event.transaction.to || !event.transaction.from) return;
+
+    const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
+    const transferData = {
+      id: transferId,
+      hash: event.transaction.hash,
+      blockNumber: Number(event.block.number),
+      timestamp: Number(event.block.timestamp),
+      from: event.transaction.from.toString(),
+      to: event.transaction.to.toString(),
+      value: BigInt(event.transaction.value),
+    };
+
+    await context.db
+      .insert(Transfer)
+      .values(transferData)
+      .onConflictDoUpdate({
+        ...transferData,
+      });
+
+    console.log(`Transfer processed: ${transferId}`);
   });
 });

@@ -15,70 +15,66 @@ import {
   fetchMetadata,
   getChainId,
   getChainName,
-  withErrorBoundary,
 } from "../utils";
 
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
   console.log(`Handling MainnetAgentRegistry:CreateUnit for agent ${agentId}`);
 
-  await withErrorBoundary(async () => {
-    const updateData = {
-      name: null,
-      description: null,
-      image: null,
-      codeUri: null,
-      blockNumber: Number(event.block.number),
+  const updateData = {
+    name: null,
+    description: null,
+    image: null,
+    codeUri: null,
+    blockNumber: Number(event.block.number),
+    timestamp: Number(event.block.timestamp),
+    packageHash: null,
+    metadataHash: event.args.unitHash,
+    metadataURI: null,
+  };
+
+  await context.db
+    .insert(Agent)
+    .values({
+      id: agentId,
+      ...updateData,
+    })
+    .onConflictDoUpdate({
+      ...updateData,
       timestamp: Number(event.block.timestamp),
-      packageHash: null,
-      metadataHash: event.args.unitHash,
-      metadataURI: null,
-    };
+    });
 
-    try {
-      console.log(`Updating existing agent ${agentId}`);
-      await context.db.update(Agent, { id: agentId }).set(updateData);
-    } catch (e) {
-      console.error("Error updating existing agent:", e);
-      await context.db.insert(Agent).values({
-        id: agentId,
-        ...updateData,
-      });
-    }
+  try {
+    const { client } = context;
+    const { MainnetAgentRegistry } = context.contracts;
+    const dependencies = await client.readContract({
+      abi: MainnetAgentRegistry.abi,
+      address: MainnetAgentRegistry.address,
+      functionName: "getDependencies",
+      args: [event.args.unitId],
+    });
 
-    // Process dependencies with error handling
-    try {
-      const { client } = context;
-      const { MainnetAgentRegistry } = context.contracts;
-      const dependencies = await client.readContract({
-        abi: MainnetAgentRegistry.abi,
-        address: MainnetAgentRegistry.address,
-        functionName: "getDependencies",
-        args: [event.args.unitId],
-      });
+    if (dependencies?.[1]?.length > 0) {
+      const validDependencies = dependencies[1]
+        .map((dep) => dep.toString())
+        .filter((dep) => dep !== "")
+        .map((dependency) => ({
+          id: `${agentId}-${dependency}`,
+          agentId,
+          componentId: dependency,
+        }));
 
-      if (dependencies?.[1]?.length > 0) {
-        const validDependencies = dependencies[1]
-          .map((dep) => dep.toString())
-          .filter((dep) => dep !== "")
-          .map((dependency) => ({
-            id: `${agentId}-${dependency}`,
-            agentId,
-            componentId: dependency,
-          }));
-
-        if (validDependencies.length > 0) {
-          console.log(`Inserting dependencies for agent ${agentId}`);
-          await context.db.insert(ComponentAgent).values(validDependencies);
-        }
+      if (validDependencies.length > 0) {
+        console.log(`Inserting dependencies for agent ${agentId}`);
+        await context.db.insert(ComponentAgent).values(validDependencies);
       }
-    } catch (error) {
-      console.error(
-        `Failed to process dependencies for agent ${agentId}:`,
-        error
-      );
     }
-  }, `AgentRegistry:CreateUnit for ${agentId}`);
+  } catch (error) {
+    console.error(
+      `Failed to process dependencies for agent ${agentId}:`,
+      error
+    );
+  }
 });
 
 ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
@@ -93,19 +89,22 @@ ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
   } catch (e) {
     console.error("Error in AgentRegistry:Transfer:", e);
     try {
-      await context.db.insert(Agent).values({
-        id: agentId,
-        operator: event.args.to.toString(),
-        name: null, // Default name
-        description: null, // Default description
-        image: null, // Default image
-        codeUri: null, // Default codeUri
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-        packageHash: null, // Default packageHash
-        metadataHash: null, // Default metadataHash
-        metadataURI: null, // Default metadataURI
-      });
+      await context.db
+        .insert(Agent)
+        .values({
+          id: agentId,
+          operator: event.args.to.toString(),
+          name: null, // Default name
+          description: null, // Default description
+          image: null, // Default image
+          codeUri: null, // Default codeUri
+          blockNumber: Number(event.block.number),
+          timestamp: Number(event.block.timestamp),
+          packageHash: null, // Default packageHash
+          metadataHash: null, // Default metadataHash
+          metadataURI: null, // Default metadataURI
+        })
+        .onConflictDoNothing();
     } catch (e) {
       console.error("Error inserting new agent:", e);
     }
@@ -132,17 +131,13 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
     metadataURI: null,
   };
 
-  try {
-    console.log(`Updating existing component ${componentId}`);
-    await context.db.update(Component, { id: componentId }).set(componentData);
-  } catch (e) {
-    console.error("Error in ComponentRegistry:CreateUnit:", e);
-    try {
-      await context.db.insert(Component).values(componentData);
-    } catch (e) {
-      console.error("Error inserting new component:", e);
-    }
-  }
+  await context.db
+    .insert(Component)
+    .values(componentData)
+    .onConflictDoUpdate({
+      ...componentData,
+      timestamp: Number(event.block.timestamp),
+    });
 
   try {
     const { client } = context;
@@ -175,7 +170,8 @@ ponder.on(`MainnetComponentRegistry:CreateUnit`, async ({ event, context }) => {
           console.log(`Inserting dependencies for component ${componentId}`);
           await context.db
             .insert(ComponentDependency)
-            .values(validDependencies);
+            .values(validDependencies)
+            .onConflictDoNothing();
         }
       }
     }
@@ -306,10 +302,13 @@ CONTRACT_NAMES.forEach((contractName) => {
     };
     try {
       console.log(`Inserting service ${chainScopedId}`);
-      await context.db.insert(Service).values({
-        ...serviceData,
-        multisig: serviceData.multisig as `0x${string}`,
-      });
+      await context.db
+        .insert(Service)
+        .values({
+          ...serviceData,
+          multisig: serviceData.multisig as `0x${string}`,
+        })
+        .onConflictDoNothing();
     } catch (e) {
       console.error(
         `Error inserting service ${chainScopedId}, attempting update`,
@@ -381,13 +380,16 @@ CONTRACT_NAMES.forEach((contractName) => {
 
     try {
       console.log(`Inserting agent instance for ${agentId}`);
-      await context.db.insert(AgentInstance).values({
-        id: event.args.agentInstance,
-        agentId: agentId,
-        serviceId: serviceId,
-        blockNumber: Number(event.block.number),
-        timestamp: Number(event.block.timestamp),
-      });
+      await context.db
+        .insert(AgentInstance)
+        .values({
+          id: event.args.agentInstance,
+          agentId: agentId,
+          serviceId: serviceId,
+          blockNumber: Number(event.block.number),
+          timestamp: Number(event.block.timestamp),
+        })
+        .onConflictDoNothing();
 
       console.log(`Updating state to REGISTERED for service ${serviceId}`);
       try {
@@ -399,11 +401,14 @@ CONTRACT_NAMES.forEach((contractName) => {
       }
 
       console.log(`Inserting service agent for ${serviceId}`);
-      await context.db.insert(ServiceAgent).values({
-        id: `${serviceId}-${event.args.agentInstance}`,
-        serviceId,
-        agentInstanceId: event.args.agentInstance,
-      });
+      await context.db
+        .insert(ServiceAgent)
+        .values({
+          id: `${serviceId}-${event.args.agentInstance}`,
+          serviceId,
+          agentInstanceId: event.args.agentInstance,
+        })
+        .onConflictDoNothing();
     } catch (e) {
       console.error("Error in RegisterInstance handler:", e);
     }
