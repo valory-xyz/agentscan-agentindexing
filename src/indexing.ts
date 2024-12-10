@@ -401,6 +401,39 @@ CONTRACT_NAMES.forEach((contractName) => {
         });
       } catch (e) {
         console.error("Error in RegisterInstance handler:", e);
+        //insert new service
+        const serviceData = {
+          id: serviceId,
+          chain,
+          securityDeposit: 0n,
+          multisig: "0x",
+          configHash: null,
+          threshold: 0,
+          maxNumAgentInstances: 0,
+          numAgentInstances: 0,
+          state: "REGISTERED" as const,
+          blockNumber: Number(event.block.number),
+          chainId: getChainId(chain),
+          name: null,
+          description: null,
+          image: null,
+          codeUri: null,
+          metadataURI: null,
+          packageHash: null,
+          metadataHash: null,
+          timestamp: Number(event.block.timestamp),
+        };
+        try {
+          await context.db.insert(Service).values({
+            ...serviceData,
+            multisig: serviceData.multisig as `0x${string}`,
+          });
+        } catch (e) {
+          console.error(
+            `Error inserting new service ${serviceId} in register instance handler, attempting update`,
+            e
+          );
+        }
       }
 
       console.log(`Inserting service agent for ${serviceId}`);
