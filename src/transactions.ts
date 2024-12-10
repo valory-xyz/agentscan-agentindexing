@@ -7,20 +7,13 @@ REGISTER_NAMES.forEach((contractName) => {
     console.log(`Handling ${contractName}:transaction:from event`);
 
     const transactionData = {
-      id: event.transaction.hash,
+      hash: event.transaction.hash,
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
       from: event.transaction.from.toString(),
       to: event.transaction.to ? event.transaction.to.toString() : "",
       value: BigInt(event.transaction.value),
-      hash: event.transaction.hash,
       input: event.transaction.input,
-      gasUsed: event.transactionReceipt
-        ? Number(event.transactionReceipt.gasUsed)
-        : undefined,
-      gasPrice: event.transaction.gasPrice
-        ? BigInt(event.transaction.gasPrice)
-        : undefined,
     };
 
     await context.db
@@ -37,13 +30,12 @@ REGISTER_NAMES.forEach((contractName) => {
     console.log(`Handling ${contractName}:transaction:to event`);
 
     const transactionData = {
-      id: event.transaction.hash,
+      hash: event.transaction.hash,
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
       from: event.transaction.from.toString(),
       to: event.transaction.to ? event.transaction.to.toString() : "",
       value: BigInt(event.transaction.value),
-      hash: event.transaction.hash,
       input: event.transaction.input,
     };
 
@@ -63,13 +55,12 @@ REGISTER_NAMES.forEach((contractName) => {
     if (!event.transaction.to) return;
 
     const transactionData = {
-      id: event.transaction.hash,
+      hash: event.transaction.hash,
       blockNumber: Number(event.block.number),
       timestamp: Number(event.block.timestamp),
       from: event.transaction.from.toString(),
       to: event.transaction.to.toString(),
       value: BigInt(event.transaction.value),
-      hash: event.transaction.hash,
       input: event.transaction.input,
     };
 

@@ -193,8 +193,7 @@ export const AgentInstanceRelations = relations(AgentInstance, ({ one }) => ({
 export const Transaction = onchainTable(
   "transaction",
   (t) => ({
-    id: t.text().primaryKey(),
-    hash: t.text().notNull(),
+    hash: t.text().primaryKey(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
     from: t.text().notNull(),
@@ -203,13 +202,11 @@ export const Transaction = onchainTable(
     input: t.text(),
   }),
   (table) => ({
-    idx: index().on(table.id),
-    hashIdx: index().on(table.hash),
     fromIdx: index().on(table.from),
     toIdx: index().on(table.to),
-    blockNumberIdx: index().on(table.blockNumber),
     timestampIdx: index().on(table.timestamp),
-    inputIdx: index().on(table.input),
+    blockNumberIdx: index().on(table.blockNumber),
+    hashIdx: index().on(table.hash),
   })
 );
 
@@ -225,11 +222,9 @@ export const Transfer = onchainTable(
     timestamp: t.integer().notNull(),
   }),
   (table) => ({
-    idx: index().on(table.id),
     hashIdx: index().on(table.hash),
     fromIdx: index().on(table.from),
     toIdx: index().on(table.to),
-    blockNumberIdx: index().on(table.blockNumber),
     timestampIdx: index().on(table.timestamp),
   })
 );
