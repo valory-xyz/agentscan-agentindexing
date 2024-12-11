@@ -1,5 +1,10 @@
 import axios from "axios";
-import NodeCache from "node-cache";
+
+// Configure axios instance with optimized settings
+const axiosInstance = axios.create({
+  timeout: 5000,
+  maxContentLength: 500000,
+});
 
 export const getChainName = (contractName: string) => {
   return contractName
@@ -21,23 +26,14 @@ export const createChainScopedId = (
 
 export const REGISTER_NAMES = [
   "MainnetRegisterInstance",
-  // "PolygonRegisterInstance",
   "GnosisRegisterInstance",
-  // "ArbitrumRegisterInstance",
-  // "OptimismRegisterInstance",
   "BaseRegisterInstance",
 ] as const;
 
-// List all contract names
 export const CONTRACT_NAMES = [
   "MainnetStaking",
-  // "PolygonRegistry",
   "GnosisRegistry",
-  // "ArbitrumRegistry",
-  // "OptimismRegistry",
   "BaseRegistry",
-  // "CeloRegistry",
-  // "ModeRegistry",
 ] as const;
 
 export const getChainId = (chain: string): number => {
@@ -59,52 +55,24 @@ export const getChainId = (chain: string): number => {
   }
 };
 
-const metadataCache = new NodeCache({
-  stdTTL: 3600,
-  checkperiod: 600,
-  useClones: false,
-  maxKeys: 4000,
-});
-
 export async function fetchMetadata(
   hash: string,
   id: string,
-  type: "component" | "service" | "agent",
-  useCache: boolean = true
+  type: "component" | "service" | "agent"
 ): Promise<any> {
   if (!hash) {
     console.warn(`No hash provided for ${type} ${id}`);
     return getDefaultMetadata(type, id);
   }
 
-  const cacheKey = `${hash}-${id}-${type}`;
-
   try {
-    if (useCache) {
-      const cachedData = metadataCache.get(cacheKey);
-      if (cachedData) {
-        return cachedData;
-      }
-    }
-
-    const metadata = await fetchAndTransformMetadata(hash, 3, { type, id });
-
-    if (metadata) {
-      try {
-        metadataCache.set(cacheKey, metadata);
-      } catch (cacheError) {
-        console.warn(`Failed to cache metadata for ${type} ${id}:`, cacheError);
-      }
-      return metadata;
-    }
-
-    return getDefaultMetadata(type, id);
+    const metadata = await fetchAndTransformMetadata(hash, 2, { type, id });
+    return metadata || getDefaultMetadata(type, id);
   } catch (error) {
     console.error(
       `Metadata fetch failed for ${type} ${id} with hash ${hash}:`,
       {
         error: error instanceof Error ? error.message : "Unknown error",
-        stack: error instanceof Error ? error.stack : undefined,
       }
     );
     return getDefaultMetadata(type, id);
@@ -125,16 +93,12 @@ function getDefaultMetadata(
   };
 }
 
-metadataCache.on("error", (err) => {
-  console.error("Cache error:", err);
-});
-
 export async function fetchAndEmbedMetadataWrapper(
   hash: string,
   componentId: string
 ) {
   try {
-    return await fetchAndEmbedMetadata(hash, 5, componentId);
+    return await fetchAndEmbedMetadata(hash, 2, componentId);
   } catch (error) {
     console.error(`Metadata embed failed for component ${componentId}:`, error);
     return null;
@@ -143,35 +107,16 @@ export async function fetchAndEmbedMetadataWrapper(
 
 export const fetchAndEmbedMetadata = async (
   configHash: string,
-  maxRetries = 3,
+  maxRetries = 2,
   componentId: string
 ) => {
-  // Create config info object for component type
   const configInfo = {
-    type: "component",
+    type: "component" as const,
     id: componentId,
   };
 
-  const metadata = await fetchAndTransformMetadata(
-    configHash,
-    maxRetries,
-    configInfo as ConfigInfo
-  );
-
-  return metadata;
+  return await fetchAndTransformMetadata(configHash, maxRetries, configInfo);
 };
-
-export async function withErrorBoundary<T>(
-  operation: () => Promise<T>,
-  errorContext: string
-): Promise<T | null> {
-  try {
-    return await operation();
-  } catch (error) {
-    console.error(`Error in ${errorContext}:`, error);
-    return null;
-  }
-}
 
 interface ConfigInfo {
   type: "component" | "service" | "agent";
@@ -187,10 +132,9 @@ interface MetadataJson {
   metadataURI?: string;
 }
 
-// Update fetchAndTransformMetadata with better error handling and types
 export const fetchAndTransformMetadata = async (
   configHash: string,
-  maxRetries = 3,
+  maxRetries = 2,
   configInfo: ConfigInfo
 ): Promise<MetadataJson | null> => {
   const metadataPrefix = "f01701220";
@@ -200,39 +144,27 @@ export const fetchAndTransformMetadata = async (
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const { data } = await axios.get<MetadataJson>(metadataURI, {
-        timeout: 10000,
-      });
+      const { data } = await axiosInstance.get<MetadataJson>(metadataURI);
 
-      const metadataJson: MetadataJson = {
+      return {
         name: data.name || null,
         description: data.description || null,
-        image: data.image || null,
-        codeUri: data.codeUri || null,
-        packageHash: extractPackageHash(
-          data.codeUri ?? undefined,
-          data.packageHash
-        ),
-        metadataURI: metadataURI,
+        image: transformIpfsUrl(data.image),
+        codeUri: transformIpfsUrl(data.codeUri),
+        packageHash: extractPackageHash(data.codeUri, data.packageHash),
+        metadataURI,
       };
-
-      // Transform IPFS URLs
-      return transformIpfsUrls(metadataJson, metadataURI);
     } catch (error) {
       if (attempt === maxRetries - 1) {
-        console.error(
-          `Failed to fetch metadata after ${maxRetries} attempts:`,
-          error
-        );
+        console.error(`Failed to fetch metadata after ${maxRetries} attempts`);
         return null;
       }
-      await handleRetry(attempt, metadataURI);
+      await delay(Math.min(1000 * (attempt + 1), 2000));
     }
   }
   return null;
 };
 
-// Helper functions for better code organization
 function extractPackageHash(
   codeUri?: string,
   existingHash?: string | null
@@ -249,32 +181,10 @@ function extractPackageHash(
   return existingHash?.trim().replace(/\/$/, "") || null;
 }
 
-function transformIpfsUrls(
-  metadata: MetadataJson,
-  metadataURI: string
-): MetadataJson {
+function transformIpfsUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
   const gatewayUrl = "https://gateway.autonolas.tech/ipfs/";
-
-  return {
-    ...metadata,
-    image: metadata.image?.startsWith("ipfs://")
-      ? metadata.image.replace("ipfs://", gatewayUrl)
-      : metadata.image,
-    codeUri: metadata.codeUri?.startsWith("ipfs://")
-      ? metadata.codeUri.replace("ipfs://", gatewayUrl)
-      : metadata.codeUri,
-    metadataURI: metadataURI,
-  };
+  return url.startsWith("ipfs://") ? url.replace("ipfs://", gatewayUrl) : url;
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function handleRetry(attempt: number, metadataURI: string) {
-  const backoffTime = Math.min(500 * (attempt + 1), 2000);
-  console.log(
-    `Attempt ${attempt + 1} failed for ${metadataURI}, retrying in ${
-      backoffTime / 1000
-    }s...`
-  );
-  await delay(backoffTime);
-}
