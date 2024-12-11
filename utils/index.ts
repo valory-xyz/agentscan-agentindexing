@@ -150,8 +150,11 @@ export const fetchAndTransformMetadata = async (
         name: data.name || null,
         description: data.description || null,
         image: transformIpfsUrl(data.image),
-        codeUri: transformIpfsUrl(data.codeUri),
-        packageHash: extractPackageHash(data.codeUri, data.packageHash),
+        codeUri: transformIpfsUrl(data.codeUri || undefined),
+        packageHash: extractPackageHash(
+          data.codeUri || undefined,
+          data.packageHash
+        ),
         metadataURI,
       };
     } catch (error) {

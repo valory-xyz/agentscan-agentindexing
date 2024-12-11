@@ -48,7 +48,7 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
   console.log(`Handling MainnetAgentRegistry:CreateUnit for agent ${agentId}`);
   const [metadataJson] = await Promise.all([
-    fetchMetadata(event.args.unitHash, agentId, "agent", true),
+    fetchMetadata(event.args.unitHash, agentId, "agent"),
   ]);
 
   if (!metadataJson) {
@@ -257,8 +257,7 @@ ponder.on(`MainnetAgentRegistry:UpdateUnitHash`, async ({ event, context }) => {
   const metadataJson = await fetchMetadata(
     event.args.unitHash,
     agentId,
-    "agent",
-    false
+    "agent"
   );
 
   try {
@@ -325,8 +324,7 @@ CONTRACT_NAMES.forEach((contractName) => {
     const metadataJson = await fetchMetadata(
       event.args.configHash,
       serviceId,
-      "service",
-      true
+      "service"
     );
     const packageHash = metadataJson?.packageHash;
     console.log(
@@ -556,8 +554,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       const metadataJson = await fetchMetadata(
         event.args.configHash,
         serviceId,
-        "service",
-        true
+        "service"
       );
       const packageHash = metadataJson?.packageHash;
       await context.db.update(Service, { id: serviceId }).set({
