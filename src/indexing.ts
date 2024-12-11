@@ -2,9 +2,7 @@ import { ponder } from "ponder:registry";
 import {
   Service,
   Agent,
-  Component,
   ServiceAgent,
-  ComponentDependency,
   ComponentAgent,
   AgentInstance,
 } from "ponder:schema";

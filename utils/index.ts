@@ -165,6 +165,12 @@ export const fetchAndTransformMetadata = async (
       await delay(Math.min(1000 * (attempt + 1), 2000));
     }
   }
+
+  // Force garbage collection after heavy operations
+  if (global.gc) {
+    global.gc();
+  }
+
   return null;
 };
 
