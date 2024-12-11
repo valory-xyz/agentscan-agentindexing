@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "NODE_OPTIONS='--max-old-space-size=8192' ponder dev -v",
-    "start": "NODE_OPTIONS='--max-old-space-size=8192' ponder start",
+    "dev": "NODE_OPTIONS='--max-old-space-size=16384' ponder dev -v",
+    "start": "NODE_OPTIONS='--max-old-space-size=16384' ponder start",
     "codegen": "ponder codegen",
     "serve": "ponder serve",
     "lint": "eslint .",
