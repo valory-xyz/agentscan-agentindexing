@@ -17,7 +17,10 @@ export default createConfig({
     },
     gnosis: {
       chainId: 100,
-      transport: loadBalance([http(process.env.PONDER_RPC_URL_100_BACKUP)]),
+      transport: loadBalance([
+        http(process.env.PONDER_RPC_URL_100_BACKUP),
+        http(process.env.PONDER_RPC_URL_100),
+      ]),
     },
     arbitrum: {
       chainId: 42161,
@@ -43,7 +46,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 20870000,
+      startBlock: 21270000,
     },
     PolygonRegisterInstance: {
       network: "polygon",
@@ -67,7 +70,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 36290000,
+      startBlock: 37200000,
     },
     ArbitrumRegisterInstance: {
       network: "arbitrum",
@@ -103,7 +106,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
-      startBlock: 20500000,
+      startBlock: 22880000,
     },
   },
   contracts: {
