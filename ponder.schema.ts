@@ -219,13 +219,47 @@ export const Transaction = onchainTable(
     to: t.text(),
     value: t.bigint(),
     input: t.text(),
+    isMultisend: t.boolean().default(false),
+    decodedFunction: t.text(),
   }),
   (table) => ({
+    hashIdx: index().on(table.hash),
     fromIdx: index().on(table.from),
     toIdx: index().on(table.to),
     timestampIdx: index().on(table.timestamp),
     blockNumberIdx: index().on(table.blockNumber),
+  })
+);
+
+export const MultisendTransaction = onchainTable(
+  "multisend_transaction",
+  (t) => ({
+    id: t.text().primaryKey(),
+    hash: t.text().notNull(),
+    from: t.text().notNull(),
+    to: t.text().notNull(),
+    value: t.bigint().notNull(),
+    data: t.text().notNull(),
+    operation: t.integer().notNull(),
+    decodedFunction: t.text(),
+    implementationAddress: t.text(),
+    index: t.integer().notNull(),
+  }),
+  (table) => ({
     hashIdx: index().on(table.hash),
+    fromIdx: index().on(table.from),
+    toIdx: index().on(table.to),
+    indexIdx: index().on(table.index),
+  })
+);
+
+export const MultisendTransactionRelations = relations(
+  MultisendTransaction,
+  ({ one }) => ({
+    transaction: one(Transaction, {
+      fields: [MultisendTransaction.hash],
+      references: [Transaction.hash],
+    }),
   })
 );
 
