@@ -295,12 +295,14 @@ async function processTransaction(event: any, context: any) {
             index: i,
           };
 
+          const { id, ...updateFields } = multisendTx;
+
           await context.db
             .insert(MultisendTransaction)
             .values(multisendTx)
             .onConflictDoUpdate({
-              target: [MultisendTransaction.id],
-              set: multisendTx,
+              ...updateFields,
+              operation: tx.operation,
             });
         }
       }
