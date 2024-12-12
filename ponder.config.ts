@@ -17,10 +17,7 @@ export default createConfig({
     },
     gnosis: {
       chainId: 100,
-      transport: loadBalance([
-        http(process.env.PONDER_RPC_URL_100_BACKUP),
-        http(process.env.PONDER_RPC_URL_100),
-      ]),
+      transport: loadBalance([http(process.env.PONDER_RPC_URL_100_BACKUP)]),
     },
     arbitrum: {
       chainId: 42161,
