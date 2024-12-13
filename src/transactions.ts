@@ -149,7 +149,7 @@ async function decodeMultisendTransactions(
 
           // Try to decode as token transfer first
           const tokenTransfer = decodeTokenTransfer(txnData);
-          console.log(`Decoded token transfer:`, tokenTransfer);
+
           if (tokenTransfer) {
             decodedCalldata = {
               functionName: `${tokenTransfer.type}_TRANSFER`,
