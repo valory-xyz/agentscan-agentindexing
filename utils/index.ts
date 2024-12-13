@@ -162,9 +162,7 @@ export async function getImplementationAddress(
       contractAddress.toLowerCase() ===
         "0x0000000000000000000000000000000000000000"
     ) {
-      console.log(
-        "Invalid or zero contract address provided to getImplementationAddress"
-      );
+      console.log("Invalid or zero contract address provided");
       return null;
     }
 
@@ -174,17 +172,70 @@ export async function getImplementationAddress(
       return null;
     }
 
-    const client = context.client;
+    const GET_IMPLEMENTATION_ABI = [
+      {
+        inputs: [],
+        name: "getImplementation",
+        outputs: [{ type: "address", name: "implementation" }],
+        stateMutability: "view",
+        type: "function",
+      },
+    ] as const;
 
-    const IMPLEMENTATION_SLOTS = [
-      "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
-      "0x0000000000000000000000000000000000000000000000000000000000000000",
-    ];
-
-    for (const slot of IMPLEMENTATION_SLOTS) {
-      const implementationAddress = await client.getStorageAt({
+    try {
+      const implementationAddress = await context.client.readContract({
         address: formattedAddress as `0x${string}`,
-        slot: slot,
+        abi: GET_IMPLEMENTATION_ABI,
+        functionName: "getImplementation",
+        blockNumber: blockNumber,
+      });
+
+      if (
+        implementationAddress &&
+        implementationAddress !== "0x0000000000000000000000000000000000000000"
+      ) {
+        console.log(
+          `Found implementation via getImplementation() for ${formattedAddress}: ${implementationAddress}`
+        );
+
+        const implementationAbi = await checkAndStoreAbi(
+          implementationAddress,
+          chainId,
+          context,
+          blockNumber
+        );
+
+        if (implementationAbi) {
+          return {
+            address: implementationAddress,
+            abi: implementationAbi,
+          };
+        }
+      }
+    } catch (error) {
+      console.log(
+        "No getImplementation function found, trying storage slots..."
+      );
+    }
+
+    // If getImplementation() fails, try storage slots
+    const PROXY_IMPLEMENTATION_SLOTS = {
+      EIP1967:
+        "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+      EIP1967_BEACON:
+        "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+      SIMPLE_PROXY:
+        "0x0000000000000000000000000000000000000000000000000000000000000000",
+      GNOSIS_SAFE_PROXY:
+        "0xa619486e6a192c629d6e5c69ba3efd8478c19a6022185a277f24bc5b6e1060f9",
+      OPENZEPPELIN_PROXY:
+        "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+    } as const;
+
+    for (const [slotType, slot] of Object.entries(PROXY_IMPLEMENTATION_SLOTS)) {
+      const implementationAddress = await context.client.getStorageAt({
+        address: formattedAddress as `0x${string}`,
+        slot: slot as `0x${string}`,
         blockNumber: blockNumber,
       });
 
@@ -193,17 +244,15 @@ export async function getImplementationAddress(
         implementationAddress !== "0x" &&
         implementationAddress !== "0x0000000000000000000000000000000000000000"
       ) {
-        // More careful cleaning of the implementation address
         const cleanAddress = "0x" + implementationAddress.slice(-40);
 
-        // Validate the cleaned address
         if (
           cleanAddress.match(/^0x[a-fA-F0-9]{40}$/) &&
           cleanAddress.toLowerCase() !==
             "0x0000000000000000000000000000000000000000"
         ) {
           console.log(
-            `Found implementation at slot ${slot} for ${formattedAddress}: ${cleanAddress}`
+            `Found implementation at ${slotType} slot for ${formattedAddress}: ${cleanAddress}`
           );
 
           const implementationAbi = await checkAndStoreAbi(
@@ -213,10 +262,12 @@ export async function getImplementationAddress(
             blockNumber
           );
 
-          return {
-            address: cleanAddress,
-            abi: implementationAbi,
-          };
+          if (implementationAbi) {
+            return {
+              address: cleanAddress,
+              abi: implementationAbi,
+            };
+          }
         }
       }
     }
