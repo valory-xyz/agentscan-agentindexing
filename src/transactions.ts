@@ -734,56 +734,37 @@ async function processTransaction(
 
     // Only check the relevant direction based on the event type
     if (isFromTransaction) {
-      // Check if from address is an agent
-      const fromAgent = await context.db.findUnique(Agent, {
-        where: { id: fromAddress.toLowerCase() },
+      await context.db.insert(AgentFromTransaction).values({
+        id: `${fromAddress}-${hash}-from`,
+        agentId: fromAddress.toLowerCase(),
+        transactionHash: hash,
+        blockNumber: Number(event.block.number),
+        timestamp: Number(event.block.timestamp),
       });
-
-      if (fromAgent) {
-        await context.db.insert(AgentFromTransaction).values({
-          id: `${fromAddress}-${hash}-from`,
-          agentId: fromAddress.toLowerCase(),
+    } else {
+      // Check if to address is an agent
+      if (toAddress) {
+        await context.db.insert(AgentToTransaction).values({
+          id: `${toAddress}-${hash}-to`,
+          agentId: toAddress.toLowerCase(),
           transactionHash: hash,
           blockNumber: Number(event.block.number),
           timestamp: Number(event.block.timestamp),
         });
       }
-    } else {
-      // Check if to address is an agent
-      if (toAddress) {
-        const toAgent = await context.db.findUnique(Agent, {
-          where: { id: toAddress.toLowerCase() },
+    }
+
+    // For multisend transactions, check each sub-transaction
+    if (safeTransaction?.multiSendTransactions) {
+      for (const tx of safeTransaction.multiSendTransactions) {
+        // Check if sub-transaction to address is an agent
+        await context.db.insert(AgentToTransaction).values({
+          id: `${tx.to}-${hash}-sub-to`,
+          agentId: tx.to.toLowerCase(),
+          transactionHash: hash,
+          blockNumber: Number(event.block.number),
+          timestamp: Number(event.block.timestamp),
         });
-
-        if (toAgent) {
-          await context.db.insert(AgentToTransaction).values({
-            id: `${toAddress}-${hash}-to`,
-            agentId: toAddress.toLowerCase(),
-            transactionHash: hash,
-            blockNumber: Number(event.block.number),
-            timestamp: Number(event.block.timestamp),
-          });
-        }
-      }
-
-      // For multisend transactions, check each sub-transaction
-      if (safeTransaction?.multiSendTransactions) {
-        for (const tx of safeTransaction.multiSendTransactions) {
-          // Check if sub-transaction to address is an agent
-          const subToAgent = await context.db.findUnique(Agent, {
-            where: { id: tx.to.toLowerCase() },
-          });
-
-          if (subToAgent) {
-            await context.db.insert(AgentToTransaction).values({
-              id: `${tx.to}-${hash}-sub-to`,
-              agentId: tx.to.toLowerCase(),
-              transactionHash: hash,
-              blockNumber: Number(event.block.number),
-              timestamp: Number(event.block.timestamp),
-            });
-          }
-        }
       }
     }
   } catch (error) {
