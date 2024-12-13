@@ -12,6 +12,7 @@ import {
 
 import { decodeFunctionData } from "viem";
 import { GnosisSafeABI } from "../abis/GnosisSafe";
+import { replaceBigInts } from "ponder";
 
 interface ContractCall {
   from: string;
@@ -37,6 +38,7 @@ interface MultisendTransaction {
   } | null;
   implementationAddress?: string | null;
   contractCalls?: ContractCall[];
+  contractAbi?: string | null;
 }
 
 const MULTISEND_ABI = [
@@ -47,11 +49,42 @@ const MULTISEND_ABI = [
   },
 ] as const;
 
+const FPMM_BUY_ABI = [
+  {
+    type: "function",
+    name: "FPMMBuy",
+    inputs: [
+      { type: "address", name: "buyer" },
+      { type: "uint256", name: "investmentAmount" },
+      { type: "uint256", name: "feeAmount" },
+      { type: "uint256", name: "outcomeIndex" },
+      { type: "uint256", name: "outcomeTokensBought" },
+    ],
+  },
+] as const;
+
+const POSITION_SPLIT_ABI = [
+  {
+    type: "function",
+    name: "PositionSplit",
+    inputs: [
+      { type: "address", name: "stakeholder" },
+      { type: "address", name: "collateralToken" },
+      { type: "bytes32", name: "parentCollectionId" },
+      { type: "bytes32", name: "conditionId" },
+      { type: "uint256[]", name: "partition" },
+      { type: "uint256", name: "amount" },
+    ],
+  },
+] as const;
+
 const KNOWN_FUNCTION_SIGNATURES = {
   // Existing signatures
   MULTISEND: "0x8d80ff0a", // Gnosis Safe Multisend
   MULTISEND_ALL: "0x86c5899d", // Alternative Multisend implementation
   BATCH: "0xbc197c81", // Another batch transaction format
+  FPMM_BUY: "0x4f62630f", // FPMMBuy signature
+  POSITION_SPLIT: "0x2e6bb91f", // PositionSplit signature
   // Add more signatures as needed
 };
 
@@ -98,29 +131,6 @@ async function decodeMultisendTransactions(
     const txData = data.startsWith("0x") ? data.slice(2) : data;
     let position = 0;
 
-    // Common function signatures
-    const SIGNATURES = {
-      TRANSFER: "0xa9059cbb",
-      TRANSFER_FROM: "0x23b872dd",
-      DEPOSIT: "0xd0e30db0",
-      WITHDRAW: "0x2e1a7d4d",
-      SWAP_EXACT_TOKENS: "0x38ed1739",
-      APPROVE: "0x095ea7b3",
-      MINT: "0x40c10f19",
-      BURN: "0x42966c68",
-      EXECUTE: "0xb61d27f6",
-      MULTICALL: "0xac9650d8",
-      PROXY_FUNCTION: "0x4f1ef286", // Common proxy function signature
-      DELEGATE_CALL: "0x5c60da1b", // Delegate call signature
-      INITIALIZE: "0x8129fc1c", // Initialize signature
-      // ERC721
-      TRANSFER_721: "0x42842e0e", // safeTransferFrom(address,address,uint256)
-      TRANSFER_721_DATA: "0xb88d4fde", // safeTransferFrom(address,address,uint256,bytes)
-      // ERC1155
-      TRANSFER_SINGLE: "0xf242432a", // safeTransferFrom(address,address,uint256,uint256,bytes)
-      TRANSFER_BATCH: "0x2eb2c2d6", // safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)
-    };
-
     while (position < txData.length) {
       const operation = parseInt(txData.slice(position, position + 2), 16);
       position += 2;
@@ -139,132 +149,46 @@ async function decodeMultisendTransactions(
       position += dataLength;
 
       let decodedCalldata = null;
+      let contractAbi = null;
+
       if (txnData && txnData !== "0x") {
-        try {
-          // Log the raw transaction data for debugging
-          console.log(`Analyzing transaction to ${to}:`, {
-            methodId: txnData.slice(0, 10),
-            fullData: txnData,
-          });
+        // Try to decode as token transfer first
+        const tokenTransfer = decodeTokenTransfer(txnData);
 
-          // Try to decode as token transfer first
-          const tokenTransfer = decodeTokenTransfer(txnData);
+        if (tokenTransfer) {
+          decodedCalldata = {
+            functionName: `${tokenTransfer.type}_TRANSFER`,
+            args: tokenTransfer,
+          };
+          console.log(`Decoded ${tokenTransfer.type} transfer:`, tokenTransfer);
+        }
 
-          if (tokenTransfer) {
-            decodedCalldata = {
-              functionName: `${tokenTransfer.type}_TRANSFER`,
-              args: tokenTransfer,
-            };
-            console.log(
-              `Decoded ${tokenTransfer.type} transfer:`,
-              tokenTransfer
-            );
-          }
-
-          // If not a token transfer, continue with existing proxy/ABI decoding
-          if (!decodedCalldata) {
-            // First try to get the implementation address for potential proxy
-            const implementationAddress = await getImplementationAddress(
-              to,
-              chainId,
-              context,
-              blockNumber
-            );
-
-            // If it's a proxy, try to decode using implementation ABI first
-            if (implementationAddress?.address) {
-              const implAbi = await checkAndStoreAbi(
-                implementationAddress.address,
-                chainId,
-                context,
-                blockNumber
-              );
-
-              if (implAbi) {
-                try {
-                  const decoded = decodeFunctionData({
-                    abi: JSON.parse(implAbi),
-                    data: txnData as `0x${string}`,
-                  });
-
-                  decodedCalldata = {
-                    functionName: decoded.functionName,
-                    args: processArgs(decoded.args),
-                  };
-
-                  console.log(`Decoded proxy call to ${to}:`, {
-                    implementation: implementationAddress.address,
-                    function: decoded.functionName,
-                    args: decodedCalldata.args,
-                  });
-                } catch (proxyError) {
-                  console.log(
-                    `Failed to decode proxy implementation: ${proxyError}`
-                  );
-                }
-              }
-            }
-
-            // If proxy decoding failed or it's not a proxy, try direct ABI
-            if (!decodedCalldata) {
-              const abi = await checkAndStoreAbi(
-                to,
-                chainId,
-                context,
-                blockNumber
-              );
-              if (abi) {
-                try {
-                  const decoded = decodeFunctionData({
-                    abi: JSON.parse(abi),
-                    data: txnData as `0x${string}`,
-                  });
-
-                  decodedCalldata = {
-                    functionName: decoded.functionName,
-                    args: processArgs(decoded.args),
-                  };
-                } catch (directError) {
-                  console.log(`Failed direct ABI decode: ${directError}`);
-                }
-              }
-            }
-
-            // If both attempts failed, try known function signatures
-            if (!decodedCalldata && txnData.length >= 10) {
-              const methodId = txnData.slice(0, 10).toLowerCase();
-              console.log(`Checking method signature: ${methodId}`);
-
-              // Add specific handling for proxy-related functions
-              if (methodId === SIGNATURES.PROXY_FUNCTION) {
-                decodedCalldata = {
-                  functionName: "proxyFunction",
-                  args: { raw: txnData },
-                };
-              } else if (methodId === SIGNATURES.DELEGATE_CALL) {
-                decodedCalldata = {
-                  functionName: "delegateCall",
-                  args: { raw: txnData },
-                };
-              }
-            }
-          }
-        } catch (error: any) {
-          errors.push({
-            index: transactions.length,
+        // If not a token transfer, try ABI decoding
+        if (!decodedCalldata) {
+          contractAbi = await checkAndStoreAbi(
             to,
-            error: error.message,
-            data: txnData,
-          });
+            chainId,
+            context,
+            blockNumber
+          );
+
+          if (contractAbi) {
+            try {
+              const decoded = decodeFunctionData({
+                abi: JSON.parse(contractAbi),
+                data: txnData as `0x${string}`,
+              });
+
+              decodedCalldata = {
+                functionName: decoded.functionName,
+                args: processArgs(decoded.args),
+              };
+            } catch (decodeError) {
+              console.log(`Failed ABI decode for ${to}:`, decodeError);
+            }
+          }
         }
       }
-
-      const implementationAddress = await getImplementationAddress(
-        to,
-        chainId,
-        context,
-        blockNumber
-      );
 
       transactions.push({
         operation,
@@ -272,7 +196,7 @@ async function decodeMultisendTransactions(
         value: value.toString(),
         data: txnData,
         decodedCalldata,
-        implementationAddress: implementationAddress?.address || null,
+        contractAbi,
       });
     }
 
@@ -296,83 +220,6 @@ interface MultisendDetails {
   uniqueRecipients: number;
   failedDecodings: number;
   estimatedGas: bigint;
-}
-
-async function processMultisendDetails(
-  transactions: MultisendTransaction[],
-  hash: string
-): Promise<MultisendDetails> {
-  const details: MultisendDetails = {
-    totalValue: BigInt(0),
-    subTransactions: [],
-    uniqueRecipients: 0,
-    failedDecodings: 0,
-    estimatedGas: BigInt(21000), // Base transaction cost
-  };
-
-  const uniqueRecipients = new Set<string>();
-
-  for (const tx of transactions) {
-    details.totalValue += BigInt(tx.value);
-    uniqueRecipients.add(tx.to.toLowerCase());
-    details.estimatedGas += BigInt(21000); // Add basic gas cost per sub-transaction
-
-    details.subTransactions.push({
-      to: tx.to,
-      value: tx.value,
-      operation: tx.operation,
-      functionName: tx.decodedCalldata?.functionName || null,
-      args: tx.decodedCalldata?.args || null,
-      implementationAddress: tx.implementationAddress || null,
-    });
-
-    if (!tx.decodedCalldata) {
-      details.failedDecodings++;
-    }
-
-    // Add extra gas estimation for contract interactions
-    if (tx.data && tx.data !== "0x") {
-      details.estimatedGas += BigInt(15000); // Additional gas for contract interaction
-    }
-  }
-
-  details.uniqueRecipients = uniqueRecipients.size;
-
-  // Log detailed breakdown
-  console.log(`
-Multisend Transaction ${hash.slice(0, 8)}... Details:
-====================================
-Total Value: ${details.totalValue.toString()} wei
-Number of Sub-transactions: ${details.subTransactions.length}
-Unique Recipients: ${details.uniqueRecipients}
-Failed Decodings: ${details.failedDecodings}
-Estimated Gas: ${details.estimatedGas.toString()}
-
-Sub-transactions Breakdown:
-${details.subTransactions
-  .map(
-    (tx, i) => `
-  ${i + 1}. To: ${tx.to}
-     Value: ${tx.value} wei
-     Operation: ${tx.operation === 0 ? "Call" : "DelegateCall"}
-     ${
-       tx.implementationAddress
-         ? `Implementation: ${tx.implementationAddress}`
-         : ""
-     }
-     ${tx.functionName ? `Function: ${tx.functionName}` : "Direct Transfer"}
-     ${
-       tx.args
-         ? `Type: ${(tx.args as TokenTransferData).type || "Unknown"}`
-         : ""
-     }
-     ${tx.args ? `Details: ${JSON.stringify(tx.args, null, 2)}` : ""}
-`
-  )
-  .join("\n")}
-  `);
-
-  return details;
 }
 
 interface MultiCallData {
@@ -457,6 +304,7 @@ async function decodeMultiCallData(
 }
 
 async function decodeSafeTransaction(
+  hash: string,
   input: string,
   chainId: number,
   context: any,
@@ -525,15 +373,10 @@ async function decodeSafeTransaction(
               blockNumber
             );
 
-          const details = await processMultisendDetails(
-            multiSendTransactions,
-            transaction.data
-          );
-
           return {
             ...transaction,
             multiSendTransactions,
-            multiSendDetails: details,
+
             decodingErrors: errors,
             isMultisend: true,
           };
@@ -600,35 +443,118 @@ function summarizeMultisendTransaction(
   );
 }
 
-const logMultisendDetails = (
-  hash: string,
-  transactions: MultisendTransaction[],
-  summary: MultisendTransactionSummary
-) => {
-  console.log(`
-Multisend Transaction ${hash}:
-------------------------
-Total Value: ${summary.totalValue}
-Sub-transactions: ${summary.subTransactionCount}
-Unique Recipients: ${summary.uniqueRecipients.size}
-Failed Decodings: ${summary.failedDecodings}
-Estimated Gas: ${summary.estimatedGas}
+interface TransactionLogEntry {
+  index: number;
+  type: "MAIN" | "SUB";
+  from: string;
+  to: string;
+  value: string;
+  operation?: number;
+  functionName?: string | null;
+  args?: any;
+  implementationAddress?: string | null;
+}
 
-Detailed Breakdown:
+function logUnifiedTransactions(
+  hash: string,
+  mainTransaction: {
+    from: string;
+    to: string;
+    value: bigint | string;
+    decodedFunction?: any;
+  },
+  safeTransaction?: any
+) {
+  const transactions: TransactionLogEntry[] = [];
+
+  // Add main transaction
+  transactions.push({
+    index: 0,
+    type: "MAIN",
+    from: mainTransaction.from,
+    to: mainTransaction.to,
+    value: mainTransaction.value.toString(),
+    functionName: mainTransaction.decodedFunction
+      ? JSON.parse(mainTransaction.decodedFunction).functionName
+      : null,
+    args: mainTransaction.decodedFunction
+      ? JSON.parse(mainTransaction.decodedFunction).args
+      : null,
+  });
+
+  // Add sub-transactions if it's a multisend
+  if (safeTransaction?.multiSendTransactions) {
+    safeTransaction.multiSendTransactions.forEach((tx: any, index: number) => {
+      transactions.push({
+        index: index + 1,
+        type: "SUB",
+        from: mainTransaction.to, // The main contract is the sender
+        to: tx.to,
+        value: tx.value.toString(),
+        operation: tx.operation,
+        functionName: tx.decodedCalldata?.functionName || null,
+        args: tx.decodedCalldata?.args || null,
+        implementationAddress: tx.implementationAddress || null,
+      });
+    });
+  }
+
+  // Calculate totals
+  const totalValue = transactions.reduce(
+    (sum, tx) => sum + BigInt(tx.value),
+    BigInt(0)
+  );
+  const uniqueRecipients = new Set(transactions.map((tx) => tx.to)).size;
+
+  // Create formatted log
+  console.log(`
+Transaction ${hash} Details:
+====================================
+Total Value: ${totalValue.toString()} wei
+Total Transactions: ${transactions.length}
+Unique Recipients: ${uniqueRecipients}
+Main Transaction Type: ${
+    safeTransaction?.multiSendTransactions ? "MULTISEND" : "SINGLE"
+  }
+
+Transaction Breakdown:
 ${transactions
   .map(
-    (tx, i) => `
-  ${i + 1}. To: ${tx.to}
-     Value: ${tx.value}
-     Operation: ${tx.operation}
-     Function: ${tx.decodedCalldata?.functionName || "Unknown"}
+    (tx) => `
+${
+  tx.type === "MAIN"
+    ? "📌 MAIN TRANSACTION"
+    : `   └─ Sub-transaction #${tx.index}`
+}
+   From: ${tx.from}
+   To: ${tx.to}
+   Value: ${tx.value} wei
+   ${
+     tx.operation !== undefined
+       ? `Operation: ${tx.operation === 0 ? "Call" : "DelegateCall"}`
+       : ""
+   }
+   ${tx.functionName ? `Function: ${tx.functionName}` : ""}
+   ${tx.args ? `Args: ${JSON.stringify(tx.args, null, 2)}` : ""}
+   ${
+     tx.implementationAddress
+       ? `Implementation: ${tx.implementationAddress}`
+       : ""
+   }
 `
   )
-  .join("\n")}
-  `);
-};
+  .join("")}
+`);
 
-async function processTransaction(event: any, context: any) {
+  return {
+    totalValue,
+    transactionCount: transactions.length,
+    uniqueRecipients,
+    transactions,
+  };
+}
+
+async function processTransaction(hash: string, event: any, context: any) {
   try {
     const fromAddress = event.transaction.from.toString();
     const toAddress = event.transaction.to?.toString();
@@ -646,24 +572,48 @@ async function processTransaction(event: any, context: any) {
         );
 
         if (abi) {
-          const { functionName, args } = decodeFunctionData({
+          const decoded = decodeFunctionData({
             abi: JSON.parse(abi),
             data: input as `0x${string}`,
           });
-          decodedFunction = JSON.stringify({ functionName, args });
+
+          const processedArgs = replaceBigInts(decoded.args, (v) => String(v));
+
+          decodedFunction = JSON.stringify({
+            functionName: decoded.functionName,
+            args: processedArgs,
+          });
         }
       } catch (error: any) {
-        console.log(
-          `Could not decode function data for transaction ${event.transaction.hash}: ${error.message}`
-        );
+        // Enhanced error logging
+        console.error("Function decoding error details:", {
+          transactionHash: event.transaction.hash,
+          toAddress,
+          error: error.message,
+          stack: error.stack,
+          input: input.slice(0, 100) + "...", // Log first 100 chars of input
+        });
       }
     }
 
     const safeTransaction = await decodeSafeTransaction(
+      hash,
       input,
       context.network.chainId,
       context,
       event.block.number
+    );
+
+    // Add unified logging
+    logUnifiedTransactions(
+      hash,
+      {
+        from: fromAddress,
+        to: toAddress || "",
+        value: event.transaction.value,
+        decodedFunction,
+      },
+      safeTransaction
     );
 
     const transactionData = convertBigIntsToStrings({
@@ -779,7 +729,7 @@ REGISTER_NAMES.forEach((contractName) => {
   ponder.on(
     `${contractName}:transaction:from`,
     async ({ event, context }: any) => {
-      await processTransaction(event, context);
+      await processTransaction(event.transaction.hash, event, context);
 
       if (event.transaction.to) {
         console.log(
@@ -800,10 +750,8 @@ REGISTER_NAMES.forEach((contractName) => {
   ponder.on(
     `${contractName}:transaction:to`,
     async ({ event, context }: any) => {
-      const { client } = context;
-
       console.log(`Handling ${contractName}:transaction:to event`);
-      await processTransaction(event, context);
+      await processTransaction(event.transaction.hash, event, context);
 
       if (event.transaction.from) {
         console.log(
@@ -868,3 +816,50 @@ REGISTER_NAMES.forEach((contractName) => {
     console.log(`Transfer processed: ${transferId}`);
   });
 });
+
+function decodeFPMMBuy(data: string): any {
+  try {
+    const decoded = decodeFunctionData({
+      abi: FPMM_BUY_ABI,
+      data: data as `0x${string}`,
+    });
+
+    return {
+      functionName: "FPMMBuy",
+      args: {
+        buyer: decoded.args[0],
+        investmentAmount: decoded.args[1].toString(),
+        feeAmount: decoded.args[2].toString(),
+        outcomeIndex: decoded.args[3].toString(),
+        outcomeTokensBought: decoded.args[4].toString(),
+      },
+    };
+  } catch (error) {
+    console.error("Error decoding FPMM Buy:", error);
+    return null;
+  }
+}
+
+function decodePositionSplit(data: string): any {
+  try {
+    const decoded = decodeFunctionData({
+      abi: POSITION_SPLIT_ABI,
+      data: data as `0x${string}`,
+    });
+
+    return {
+      functionName: "PositionSplit",
+      args: {
+        stakeholder: decoded.args[0],
+        collateralToken: decoded.args[1],
+        parentCollectionId: decoded.args[2],
+        conditionId: decoded.args[3],
+        partition: decoded.args[4].map((p: bigint) => p.toString()),
+        amount: decoded.args[5].toString(),
+      },
+    };
+  } catch (error) {
+    console.error("Error decoding Position Split:", error);
+    return null;
+  }
+}

@@ -1,6 +1,7 @@
 import axios from "axios";
 import { pool } from "./postgres";
 import { generateEmbeddingWithRetry } from "./openai";
+import { replaceBigInts } from "ponder";
 
 // Configure axios instance with optimized settings
 const axiosInstance = axios.create({
@@ -255,10 +256,6 @@ export async function checkAndStoreAbi(
       console.log(`Invalid address format: ${contractAddress}`);
       return null;
     }
-
-    console.log(
-      `Starting ABI check for ${formattedAddress} on chain ${chainId}`
-    );
 
     const code = await context.client.getCode({
       address: formattedAddress as `0x${string}`,
@@ -516,25 +513,6 @@ export async function isSafeTransaction(
   }
 }
 
-// Add this helper to convert all BigInts in an object to strings
-export function convertBigIntsToStrings(obj: any): any {
-  if (typeof obj === "bigint") {
-    return obj.toString();
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(convertBigIntsToStrings);
-  }
-  if (typeof obj === "object" && obj !== null) {
-    return Object.fromEntries(
-      Object.entries(obj).map(([key, value]) => [
-        key,
-        convertBigIntsToStrings(value),
-      ])
-    );
-  }
-  return obj;
-}
-
 export interface TokenTransferData {
   type: "ERC20" | "ERC721" | "ERC1155" | "UNKNOWN";
   from?: string;
@@ -636,4 +614,8 @@ export function processArgs(args: any): any {
 
   // Handle other primitive types
   return args;
+}
+
+export function convertBigIntsToStrings(obj: any): any {
+  return replaceBigInts(obj, (v) => String(v));
 }
