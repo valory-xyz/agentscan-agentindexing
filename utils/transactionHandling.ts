@@ -15,6 +15,8 @@ import { Context } from "ponder:registry";
 const EVENT_SIGNATURES = {
   ERC20_TRANSFER:
     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+  FPMM_BUY:
+    "0x4f62630f51608fc8a7603a9391a5101e58bd7c276139366fc107dc3b67c3dcf8",
   ERC721_TRANSFER:
     "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
   SAFE_EXECUTION:
@@ -177,6 +179,32 @@ export async function processTransaction(
           },
           rawData: log.data,
           rawTopics: log.topics,
+        };
+      } else if (eventSignature === EVENT_SIGNATURES.FPMM_BUY) {
+        const data = log?.data?.slice(2) || ""; // Remove '0x' prefix
+        // Split data into 32-byte chunks
+        const investmentAmount = data.slice(0, 64);
+        const feeAmount = data.slice(64, 128);
+        const outcomeTokensBought = data.slice(128, 192);
+
+        decodedLog = {
+          contractAddress: log?.address,
+          eventSignature,
+          decoded: {
+            name: "FPMMBuy",
+            args: {
+              buyer: `0x${log?.topics[1]?.slice(26) || ""}`,
+              outcomeIndex: log?.topics[2] ? parseInt(log?.topics[2], 16) : 0,
+              investmentAmount: BigInt("0x" + investmentAmount).toString(),
+              feeAmount: BigInt("0x" + feeAmount).toString(),
+              outcomeTokensBought: BigInt(
+                "0x" + outcomeTokensBought
+              ).toString(),
+            },
+            signature: eventSignature,
+          },
+          rawData: log?.data,
+          rawTopics: log?.topics || [],
         };
       } else {
         decodedLog = await decodeLogWithDetails(
