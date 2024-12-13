@@ -145,6 +145,9 @@ export const ServiceRelations = relations(Service, ({ many }) => ({
 
 export const AgentRelations = relations(Agent, ({ many }) => ({
   instances: many(AgentInstance),
+  componentAgents: many(ComponentAgent),
+  toTransactions: many(AgentToTransaction),
+  fromTransactions: many(AgentFromTransaction),
 }));
 
 export const ComponentAgent = onchainTable("component_agent", (t) => ({
@@ -315,6 +318,66 @@ export const AgentTransactionRelations = relations(
     }),
     transaction: one(Transaction, {
       fields: [AgentTransaction.transactionHash],
+      references: [Transaction.hash],
+    }),
+  })
+);
+
+export const AgentToTransaction = onchainTable(
+  "agent_to_transaction",
+  (t) => ({
+    id: t.text().primaryKey(),
+    agentId: t.text().notNull(),
+    transactionHash: t.text().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+  }),
+  (table) => ({
+    agentIdx: index().on(table.agentId),
+    txHashIdx: index().on(table.transactionHash),
+    timestampIdx: index().on(table.timestamp),
+  })
+);
+
+export const AgentFromTransaction = onchainTable(
+  "agent_from_transaction",
+  (t) => ({
+    id: t.text().primaryKey(),
+    agentId: t.text().notNull(),
+    transactionHash: t.text().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+  }),
+  (table) => ({
+    agentIdx: index().on(table.agentId),
+    txHashIdx: index().on(table.transactionHash),
+    timestampIdx: index().on(table.timestamp),
+  })
+);
+
+export const AgentToTransactionRelations = relations(
+  AgentToTransaction,
+  ({ one }) => ({
+    agent: one(Agent, {
+      fields: [AgentToTransaction.agentId],
+      references: [Agent.id],
+    }),
+    transaction: one(Transaction, {
+      fields: [AgentToTransaction.transactionHash],
+      references: [Transaction.hash],
+    }),
+  })
+);
+
+export const AgentFromTransactionRelations = relations(
+  AgentFromTransaction,
+  ({ one }) => ({
+    agent: one(Agent, {
+      fields: [AgentFromTransaction.agentId],
+      references: [Agent.id],
+    }),
+    transaction: one(Transaction, {
+      fields: [AgentFromTransaction.transactionHash],
       references: [Transaction.hash],
     }),
   })

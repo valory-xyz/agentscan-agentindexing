@@ -1,5 +1,11 @@
 import { ponder } from "ponder:registry";
-import { Transaction, Transfer, MultisendTransaction } from "ponder:schema";
+import {
+  Transaction,
+  Transfer,
+  MultisendTransaction,
+  AgentFromTransaction,
+  AgentToTransaction,
+} from "ponder:schema";
 import {
   checkAndStoreAbi,
   convertBigIntsToStrings,
@@ -13,6 +19,7 @@ import {
 import { decodeFunctionData } from "viem";
 import { GnosisSafeABI } from "../abis/GnosisSafe";
 import { replaceBigInts } from "ponder";
+import { Agent } from "ponder:schema";
 
 interface ContractCall {
   from: string;
@@ -554,7 +561,12 @@ ${
   };
 }
 
-async function processTransaction(hash: string, event: any, context: any) {
+async function processTransaction(
+  hash: string,
+  event: any,
+  context: any,
+  isFromTransaction: boolean
+) {
   try {
     const fromAddress = event.transaction.from.toString();
     const toAddress = event.transaction.to?.toString();
@@ -713,9 +725,63 @@ async function processTransaction(hash: string, event: any, context: any) {
               .insert(Transfer)
               .values(transfer)
               .onConflictDoUpdate({
-                target: ["id"],
-                set: transfer,
+                ...transfer,
               });
+          }
+        }
+      }
+    }
+
+    // Only check the relevant direction based on the event type
+    if (isFromTransaction) {
+      // Check if from address is an agent
+      const fromAgent = await context.db.findUnique(Agent, {
+        where: { id: fromAddress.toLowerCase() },
+      });
+
+      if (fromAgent) {
+        await context.db.insert(AgentFromTransaction).values({
+          id: `${fromAddress}-${hash}-from`,
+          agentId: fromAddress.toLowerCase(),
+          transactionHash: hash,
+          blockNumber: Number(event.block.number),
+          timestamp: Number(event.block.timestamp),
+        });
+      }
+    } else {
+      // Check if to address is an agent
+      if (toAddress) {
+        const toAgent = await context.db.findUnique(Agent, {
+          where: { id: toAddress.toLowerCase() },
+        });
+
+        if (toAgent) {
+          await context.db.insert(AgentToTransaction).values({
+            id: `${toAddress}-${hash}-to`,
+            agentId: toAddress.toLowerCase(),
+            transactionHash: hash,
+            blockNumber: Number(event.block.number),
+            timestamp: Number(event.block.timestamp),
+          });
+        }
+      }
+
+      // For multisend transactions, check each sub-transaction
+      if (safeTransaction?.multiSendTransactions) {
+        for (const tx of safeTransaction.multiSendTransactions) {
+          // Check if sub-transaction to address is an agent
+          const subToAgent = await context.db.findUnique(Agent, {
+            where: { id: tx.to.toLowerCase() },
+          });
+
+          if (subToAgent) {
+            await context.db.insert(AgentToTransaction).values({
+              id: `${tx.to}-${hash}-sub-to`,
+              agentId: tx.to.toLowerCase(),
+              transactionHash: hash,
+              blockNumber: Number(event.block.number),
+              timestamp: Number(event.block.timestamp),
+            });
           }
         }
       }
@@ -729,7 +795,7 @@ REGISTER_NAMES.forEach((contractName) => {
   ponder.on(
     `${contractName}:transaction:from`,
     async ({ event, context }: any) => {
-      await processTransaction(event.transaction.hash, event, context);
+      await processTransaction(event.transaction.hash, event, context, true);
 
       if (event.transaction.to) {
         console.log(
@@ -750,8 +816,7 @@ REGISTER_NAMES.forEach((contractName) => {
   ponder.on(
     `${contractName}:transaction:to`,
     async ({ event, context }: any) => {
-      console.log(`Handling ${contractName}:transaction:to event`);
-      await processTransaction(event.transaction.hash, event, context);
+      await processTransaction(event.transaction.hash, event, context, false);
 
       if (event.transaction.from) {
         console.log(
@@ -816,50 +881,3 @@ REGISTER_NAMES.forEach((contractName) => {
     console.log(`Transfer processed: ${transferId}`);
   });
 });
-
-function decodeFPMMBuy(data: string): any {
-  try {
-    const decoded = decodeFunctionData({
-      abi: FPMM_BUY_ABI,
-      data: data as `0x${string}`,
-    });
-
-    return {
-      functionName: "FPMMBuy",
-      args: {
-        buyer: decoded.args[0],
-        investmentAmount: decoded.args[1].toString(),
-        feeAmount: decoded.args[2].toString(),
-        outcomeIndex: decoded.args[3].toString(),
-        outcomeTokensBought: decoded.args[4].toString(),
-      },
-    };
-  } catch (error) {
-    console.error("Error decoding FPMM Buy:", error);
-    return null;
-  }
-}
-
-function decodePositionSplit(data: string): any {
-  try {
-    const decoded = decodeFunctionData({
-      abi: POSITION_SPLIT_ABI,
-      data: data as `0x${string}`,
-    });
-
-    return {
-      functionName: "PositionSplit",
-      args: {
-        stakeholder: decoded.args[0],
-        collateralToken: decoded.args[1],
-        parentCollectionId: decoded.args[2],
-        conditionId: decoded.args[3],
-        partition: decoded.args[4].map((p: bigint) => p.toString()),
-        amount: decoded.args[5].toString(),
-      },
-    };
-  } catch (error) {
-    console.error("Error decoding Position Split:", error);
-    return null;
-  }
-}
