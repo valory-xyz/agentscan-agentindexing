@@ -2,12 +2,21 @@ import axios from "axios";
 import { pool } from "./postgres";
 import { generateEmbeddingWithRetry } from "./openai";
 import { replaceBigInts } from "ponder";
+import { createClient } from "redis";
+import { TokenTransferData } from "../src/types";
 
+const TTL = 7 * 24 * 60 * 60;
 // Configure axios instance with optimized settings
 const axiosInstance = axios.create({
   timeout: 5000,
   maxContentLength: 500000,
 });
+
+const redisClient = createClient({
+  url: process.env.REDIS_URL || "redis://localhost:6379",
+});
+
+redisClient.connect().catch(console.error);
 
 const SIGNATURES = {
   // ERC20
@@ -291,7 +300,15 @@ export async function checkAndStoreAbi(
   context: any,
   blockNumber: bigint
 ) {
+  const formattedAddress = contractAddress.toLowerCase();
+  const redisKey = `abi:${formattedAddress}:${chainId}`;
   try {
+    //check redis first
+
+    const cachedAbi = await redisClient.get(redisKey);
+    if (cachedAbi === "null") return null;
+    if (cachedAbi) return cachedAbi;
+
     if (
       !contractAddress ||
       contractAddress === "0x" ||
@@ -302,7 +319,6 @@ export async function checkAndStoreAbi(
       return null;
     }
 
-    const formattedAddress = contractAddress.toLowerCase();
     if (!formattedAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
       console.log(`Invalid address format: ${contractAddress}`);
       return null;
@@ -350,13 +366,7 @@ export async function checkAndStoreAbi(
 
     const embedding = await generateEmbeddingWithRetry(abi_text);
 
-    let abiObj = JSON.parse(abi_text);
-    const isProxy =
-      Array.isArray(abiObj) &&
-      abiObj.length === 2 &&
-      abiObj[0]?.type === "constructor" &&
-      abiObj[0]?.inputs?.[0]?.name === "_singleton" &&
-      abiObj[1]?.type === "fallback";
+    const isProxy = isProxyContract(abi_text);
 
     if (isProxy) {
       const implementation: ImplementationResult | null =
@@ -372,33 +382,36 @@ export async function checkAndStoreAbi(
           `Found implementation at ${implementation.address}, storing ABI for proxy`
         );
 
-        // Store the implementation's ABI under the proxy's address
         const embedding = await generateEmbeddingWithRetry(implementation.abi);
 
         const insertQuery = `
-          INSERT INTO contract_abis (
-            address,
-            chain_id,
-            abi_text,
-            abi_embedding,
-            implementation_address
-          ) VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (address, chain_id) 
-          DO UPDATE SET 
-            abi_text = $3,
-            abi_embedding = $4,
-            implementation_address = $5,
-            updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `;
+        INSERT INTO contract_abis (
+          address,
+          chain_id,
+          abi_text,
+          abi_embedding,
+          implementation_address
+        ) VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (address, chain_id) 
+        DO UPDATE SET 
+          abi_text = $3,
+          abi_embedding = $4,
+          implementation_address = $5,
+          updated_at = CURRENT_TIMESTAMP
+        RETURNING *
+      `;
 
         await pool.query(insertQuery, [
-          contractAddress.toLowerCase(),
+          formattedAddress,
           chainId,
           implementation.abi,
           embedding,
           implementation.address,
         ]);
+
+        await redisClient.set(redisKey, implementation.abi, {
+          EX: TTL,
+        });
 
         return implementation.abi;
       }
@@ -425,6 +438,10 @@ export async function checkAndStoreAbi(
       abi_text,
       embedding,
     ]);
+
+    await redisClient.set(redisKey, abi_text, {
+      EX: TTL,
+    });
 
     console.log(`DB Insert Result: ${result.rowCount} rows affected`);
     return abi_text;
@@ -453,8 +470,11 @@ export async function checkAndStoreAbi(
         chainId,
       ]);
       console.log(
-        `Stored null values for ${contractAddress}. Rows affected: ${result.rowCount}`
+        `Stored null values for ${formattedAddress}. Rows affected: ${result.rowCount}`
       );
+      await redisClient.set(redisKey, "null", {
+        EX: TTL,
+      });
     } catch (dbError: any) {
       console.error(`Database error storing null values:`, {
         message: dbError.message,
@@ -564,15 +584,6 @@ export async function isSafeTransaction(
   }
 }
 
-export interface TokenTransferData {
-  type: "ERC20" | "ERC721" | "ERC1155" | "UNKNOWN";
-  from?: string;
-  to?: string;
-  tokenId?: string;
-  amount?: string;
-  data?: string;
-}
-
 export function decodeTokenTransfer(data: string): TokenTransferData | null {
   if (!data || data === "0x") return null;
 
@@ -641,32 +652,32 @@ export function decodeTokenTransfer(data: string): TokenTransferData | null {
   }
 }
 
-// Add this helper function to process transaction arguments
-export function processArgs(args: any): any {
-  if (!args) return null;
-
-  // Handle arrays
-  if (Array.isArray(args)) {
-    return args.map(processArgs);
-  }
-
-  // Handle BigInt
-  if (typeof args === "bigint") {
-    return args.toString();
-  }
-
-  // Handle objects
-  if (typeof args === "object" && args !== null) {
-    return Object.entries(args).reduce((acc: any, [key, val]) => {
-      acc[key] = processArgs(val);
-      return acc;
-    }, {});
-  }
-
-  // Handle other primitive types
-  return args;
-}
-
 export function convertBigIntsToStrings(obj: any): any {
   return replaceBigInts(obj, (v) => String(v));
+}
+
+export function isProxyContract(abi: string): boolean {
+  try {
+    const abiObj = JSON.parse(abi);
+
+    // Check for proxy patterns
+    const isProxy =
+      (Array.isArray(abiObj) &&
+        abiObj.length === 2 &&
+        abiObj[0]?.type === "constructor" &&
+        abiObj[0]?.inputs?.[0]?.name === "_singleton" &&
+        abiObj[1]?.type === "fallback") ||
+      abiObj.some(
+        (item: any) =>
+          item.type === "function" &&
+          item.name === "getImplementation" &&
+          item.outputs?.length === 1 &&
+          item.outputs[0].type === "address"
+      );
+
+    return isProxy;
+  } catch (error) {
+    console.error("Error checking proxy status:", error);
+    return false;
+  }
 }

@@ -382,3 +382,39 @@ export const AgentFromTransactionRelations = relations(
     }),
   })
 );
+
+export const Log = onchainTable(
+  "log",
+  (t) => ({
+    id: t.text().primaryKey(),
+    transactionHash: t.text().notNull(),
+    logIndex: t.integer().notNull(),
+    address: t.text().notNull(),
+    data: t.text().notNull(),
+    topics: t.text().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+    eventName: t.text(),
+    decodedData: t.text(),
+  }),
+  (table) => ({
+    txHashIdx: index().on(table.transactionHash),
+    addressIdx: index().on(table.address),
+    blockNumberIdx: index().on(table.blockNumber),
+    timestampIdx: index().on(table.timestamp),
+    eventNameIdx: index().on(table.eventName),
+  })
+);
+
+export const TransactionRelations = relations(Transaction, ({ many }) => ({
+  logs: many(Log),
+  multisendTransactions: many(MultisendTransaction),
+  transfers: many(Transfer),
+}));
+
+export const LogRelations = relations(Log, ({ one }) => ({
+  transaction: one(Transaction, {
+    fields: [Log.transactionHash],
+    references: [Transaction.hash],
+  }),
+}));
