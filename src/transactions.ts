@@ -85,6 +85,94 @@ const POSITION_SPLIT_ABI = [
   },
 ] as const;
 
+const ERC1155_TRANSFER_ABI = [
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    inputs: [
+      { type: "address", name: "from" },
+      { type: "address", name: "to" },
+      { type: "uint256", name: "id" },
+      { type: "uint256", name: "amount" },
+      { type: "bytes", name: "data" },
+    ],
+  },
+  {
+    type: "function",
+    name: "safeBatchTransferFrom",
+    inputs: [
+      { type: "address", name: "from" },
+      { type: "address", name: "to" },
+      { type: "uint256[]", name: "ids" },
+      { type: "uint256[]", name: "amounts" },
+      { type: "bytes", name: "data" },
+    ],
+  },
+] as const;
+
+const UNISWAP_V2_ROUTER_ABI = [
+  {
+    type: "function",
+    name: "swapExactTokensForTokens",
+    inputs: [
+      { type: "uint256", name: "amountIn" },
+      { type: "uint256", name: "amountOutMin" },
+      { type: "address[]", name: "path" },
+      { type: "address", name: "to" },
+      { type: "uint256", name: "deadline" },
+    ],
+  },
+  {
+    type: "function",
+    name: "swapExactETHForTokens",
+    inputs: [
+      { type: "uint256", name: "amountOutMin" },
+      { type: "address[]", name: "path" },
+      { type: "address", name: "to" },
+      { type: "uint256", name: "deadline" },
+    ],
+  },
+] as const;
+
+const ERC721_ABI = [
+  {
+    type: "function",
+    name: "safeTransferFrom",
+    inputs: [
+      { type: "address", name: "from" },
+      { type: "address", name: "to" },
+      { type: "uint256", name: "tokenId" },
+    ],
+  },
+  {
+    type: "function",
+    name: "transferFrom",
+    inputs: [
+      { type: "address", name: "from" },
+      { type: "address", name: "to" },
+      { type: "uint256", name: "tokenId" },
+    ],
+  },
+] as const;
+
+const COMPOUND_ABI = [
+  {
+    type: "function",
+    name: "mint",
+    inputs: [{ type: "uint256", name: "mintAmount" }],
+  },
+  {
+    type: "function",
+    name: "redeem",
+    inputs: [{ type: "uint256", name: "redeemTokens" }],
+  },
+  {
+    type: "function",
+    name: "borrow",
+    inputs: [{ type: "uint256", name: "borrowAmount" }],
+  },
+] as const;
+
 const KNOWN_FUNCTION_SIGNATURES = {
   // Existing signatures
   MULTISEND: "0x8d80ff0a", // Gnosis Safe Multisend
@@ -92,8 +180,16 @@ const KNOWN_FUNCTION_SIGNATURES = {
   BATCH: "0xbc197c81", // Another batch transaction format
   FPMM_BUY: "0x4f62630f", // FPMMBuy signature
   POSITION_SPLIT: "0x2e6bb91f", // PositionSplit signature
-  // Add more signatures as needed
-};
+  ERC1155_TRANSFER: "0xf242432a",
+  ERC1155_BATCH_TRANSFER: "0x2eb2c2d6",
+  UNISWAP_EXACT_TOKENS: "0x38ed1739",
+  UNISWAP_EXACT_ETH: "0x7ff36ab5",
+  ERC721_TRANSFER: "0x23b872dd",
+  ERC721_SAFE_TRANSFER: "0x42842e0e",
+  COMPOUND_MINT: "0xa0712d68",
+  COMPOUND_REDEEM: "0xdb006a75",
+  COMPOUND_BORROW: "0xc5ebeaec",
+} as const;
 
 function getTransactionType(data: string): string {
   if (!data || data === "0x") return "SIMPLE_TRANSFER";
@@ -120,6 +216,7 @@ interface DecodingError {
 }
 
 async function decodeMultisendTransactions(
+  hash: string,
   data: string,
   chainId: number,
   context: any,
@@ -172,12 +269,19 @@ async function decodeMultisendTransactions(
 
         // If not a token transfer, try ABI decoding
         if (!decodedCalldata) {
-          contractAbi = await checkAndStoreAbi(
-            to,
-            chainId,
-            context,
-            blockNumber
-          );
+          try {
+            contractAbi = await checkAndStoreAbi(
+              to,
+              chainId,
+              context,
+              blockNumber
+            );
+          } catch (error) {
+            console.log(
+              `Failed ABI check in decodeMultisendTransactions for ${hash}:`,
+              error
+            );
+          }
 
           if (contractAbi) {
             try {
@@ -191,7 +295,10 @@ async function decodeMultisendTransactions(
                 args: processArgs(decoded.args),
               };
             } catch (decodeError) {
-              console.log(`Failed ABI decode for ${to}:`, decodeError);
+              console.log(
+                `Failed ABI decode in decodeMultisendTransactions for ${hash}:`,
+                decodeError
+              );
             }
           }
         }
@@ -333,6 +440,8 @@ async function decodeSafeTransaction(
           blockNumber
         );
 
+        console.log("Decoded multiCallData:", calls);
+        console.log("Decoding errors:", errors);
         return {
           multiCalls: calls,
           decodingErrors: errors,
@@ -344,55 +453,124 @@ async function decodeSafeTransaction(
     }
 
     // Try Safe transaction decoding
-    const { functionName, args } = decodeFunctionData({
-      abi: GnosisSafeABI,
-      data: input as `0x${string}`,
-    });
+    try {
+      const { functionName, args } = decodeFunctionData({
+        abi: GnosisSafeABI,
+        data: input as `0x${string}`,
+      });
 
-    if (functionName === "execTransaction") {
-      const transaction = {
-        to: args[0],
-        value: args[1].toString(),
-        data: args[2],
-        operation: args[3],
-        safeTxGas: args[4].toString(),
-        baseGas: args[5].toString(),
-        gasPrice: args[6].toString(),
-        gasToken: args[7],
-        refundReceiver: args[8],
-        signatures: args[9],
-        decodedFunction: null as { functionName: string; args: any } | null,
-      };
+      if (functionName === "execTransaction") {
+        const transaction = {
+          to: args[0],
+          value: args[1].toString(),
+          data: args[2],
+          operation: args[3],
+          safeTxGas: args[4].toString(),
+          baseGas: args[5].toString(),
+          gasPrice: args[6].toString(),
+          gasToken: args[7],
+          refundReceiver: args[8],
+          signatures: args[9],
+          decodedFunction: null as { functionName: string; args: any } | null,
+        };
 
-      try {
-        const { functionName: multiSendFn, args: multiSendArgs } =
-          decodeFunctionData({
-            abi: MULTISEND_ABI,
-            data: transaction.data as `0x${string}`,
+        // If this is the data that failed to decode, log detailed information
+        const methodId = transaction.data.slice(0, 10);
+
+        try {
+          const { functionName: multiSendFn, args: multiSendArgs } =
+            decodeFunctionData({
+              abi: MULTISEND_ABI,
+              data: transaction.data as `0x${string}`,
+            });
+
+          if (
+            multiSendFn === "multiSend" &&
+            multiSendArgs &&
+            multiSendArgs[0]
+          ) {
+            const { transactions: multiSendTransactions, errors } =
+              await decodeMultisendTransactions(
+                hash,
+                multiSendArgs[0] as string,
+                chainId,
+                context,
+                blockNumber
+              );
+
+            console.log("Decoding errors:", errors);
+
+            return {
+              ...transaction,
+              multiSendTransactions,
+              decodingErrors: errors,
+              isMultisend: true,
+            };
+          }
+        } catch (error: any) {
+          console.error(`Safe Transaction Decoding Error:`, {
+            transactionHash: hash,
+            targetContract: transaction.to,
+            methodId,
+            error: error.message,
+            currentAbi: "MULTISEND_ABI",
+            abiLookupUrl: `https://openchain.xyz/signatures?query=${methodId}`,
           });
-
-        if (multiSendFn === "multiSend" && multiSendArgs && multiSendArgs[0]) {
-          const { transactions: multiSendTransactions, errors } =
-            await decodeMultisendTransactions(
-              multiSendArgs[0] as string,
-              chainId,
-              context,
-              blockNumber
-            );
-
-          return {
-            ...transaction,
-            multiSendTransactions,
-
-            decodingErrors: errors,
-            isMultisend: true,
-          };
         }
-      } catch (error) {
-        console.error("Error processing multisend transaction:", error);
-      }
 
-      return transaction;
+        return transaction;
+      }
+    } catch (error: any) {
+      const methodId = input.slice(0, 10);
+      console.error(`Safe Transaction Decoding Error:`, {
+        transactionHash: hash,
+        methodId,
+        error: error.message,
+        currentAbi: "GnosisSafeABI",
+        abiLookupUrl: `https://openchain.xyz/signatures?query=${methodId}`,
+      });
+    }
+
+    // Try additional protocol-specific decodings
+    const methodId = input.slice(0, 10).toLowerCase();
+    let decodedData = null;
+
+    switch (methodId) {
+      case KNOWN_FUNCTION_SIGNATURES.ERC1155_TRANSFER:
+      case KNOWN_FUNCTION_SIGNATURES.ERC1155_BATCH_TRANSFER:
+        decodedData = decodeFunctionData({
+          abi: ERC1155_TRANSFER_ABI,
+          data: input as `0x${string}`,
+        });
+        break;
+
+      case KNOWN_FUNCTION_SIGNATURES.UNISWAP_EXACT_TOKENS:
+      case KNOWN_FUNCTION_SIGNATURES.UNISWAP_EXACT_ETH:
+        decodedData = decodeFunctionData({
+          abi: UNISWAP_V2_ROUTER_ABI,
+          data: input as `0x${string}`,
+        });
+        break;
+
+      case KNOWN_FUNCTION_SIGNATURES.ERC721_TRANSFER:
+      case KNOWN_FUNCTION_SIGNATURES.ERC721_SAFE_TRANSFER:
+        decodedData = decodeFunctionData({
+          abi: ERC721_ABI,
+          data: input as `0x${string}`,
+        });
+        break;
+
+      // ... continue with existing code ...
+    }
+
+    if (decodedData) {
+      return {
+        decodedFunction: {
+          functionName: decodedData.functionName,
+          args: processArgs(decodedData.args),
+        },
+        protocolType: methodId,
+      };
     }
 
     return null;
@@ -473,6 +651,7 @@ function logUnifiedTransactions(
   safeTransaction?: any
 ) {
   const transactions: TransactionLogEntry[] = [];
+  const subTransactionTypes = new Map<string, number>();
 
   // Add main transaction
   transactions.push({
@@ -492,10 +671,16 @@ function logUnifiedTransactions(
   // Add sub-transactions if it's a multisend
   if (safeTransaction?.multiSendTransactions) {
     safeTransaction.multiSendTransactions.forEach((tx: any, index: number) => {
+      const functionName = tx.decodedCalldata?.functionName || "Unknown";
+      subTransactionTypes.set(
+        functionName,
+        (subTransactionTypes.get(functionName) || 0) + 1
+      );
+
       transactions.push({
         index: index + 1,
         type: "SUB",
-        from: mainTransaction.to, // The main contract is the sender
+        from: mainTransaction.to,
         to: tx.to,
         value: tx.value.toString(),
         operation: tx.operation,
@@ -513,6 +698,11 @@ function logUnifiedTransactions(
   );
   const uniqueRecipients = new Set(transactions.map((tx) => tx.to)).size;
 
+  // Create sub-transaction type summary
+  const subTransactionSummary = Array.from(subTransactionTypes.entries())
+    .map(([type, count]) => `   ${type}: ${count} transactions`)
+    .join("\n");
+
   // Create formatted log
   console.log(`
 Transaction ${hash} Details:
@@ -523,6 +713,9 @@ Unique Recipients: ${uniqueRecipients}
 Main Transaction Type: ${
     safeTransaction?.multiSendTransactions ? "MULTISEND" : "SINGLE"
   }
+
+Sub-Transaction Types:
+${subTransactionSummary || "   No sub-transactions"}
 
 Transaction Breakdown:
 ${transactions
@@ -558,6 +751,7 @@ ${
     transactionCount: transactions.length,
     uniqueRecipients,
     transactions,
+    subTransactionTypes: Object.fromEntries(subTransactionTypes),
   };
 }
 
