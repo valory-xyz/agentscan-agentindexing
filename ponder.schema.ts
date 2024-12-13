@@ -238,9 +238,9 @@ export const MultisendTransaction = onchainTable(
     hash: t.text().notNull(),
     from: t.text().notNull(),
     to: t.text().notNull(),
-    value: t.bigint().notNull(),
+    value: t.text().notNull(),
     data: t.text().notNull(),
-    operation: t.integer().notNull(),
+    operationType: t.integer().notNull(),
     decodedFunction: t.text(),
     implementationAddress: t.text(),
     index: t.integer().notNull(),
@@ -289,3 +289,33 @@ export const TransferRelations = relations(Transfer, ({ one }) => ({
     references: [Transaction.hash],
   }),
 }));
+
+export const AgentTransaction = onchainTable(
+  "agent_transaction",
+  (t) => ({
+    id: t.text().primaryKey(),
+    agentId: t.text().notNull(),
+    transactionHash: t.text().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+  }),
+  (table) => ({
+    agentIdx: index().on(table.agentId),
+    txHashIdx: index().on(table.transactionHash),
+    timestampIdx: index().on(table.timestamp),
+  })
+);
+
+export const AgentTransactionRelations = relations(
+  AgentTransaction,
+  ({ one }) => ({
+    agent: one(Agent, {
+      fields: [AgentTransaction.agentId],
+      references: [Agent.id],
+    }),
+    transaction: one(Transaction, {
+      fields: [AgentTransaction.transactionHash],
+      references: [Transaction.hash],
+    }),
+  })
+);

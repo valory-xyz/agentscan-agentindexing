@@ -55,6 +55,7 @@ export default createConfig({
         }),
         parameter: "agentInstance",
       }),
+
       startBlock: 41783952,
     },
     GnosisRegisterInstance: {

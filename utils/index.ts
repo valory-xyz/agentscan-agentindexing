@@ -8,6 +8,20 @@ const axiosInstance = axios.create({
   maxContentLength: 500000,
 });
 
+const SIGNATURES = {
+  // ERC20
+  TRANSFER: "0xa9059cbb", // transfer(address,uint256)
+  TRANSFER_FROM: "0x23b872dd", // transferFrom(address,address,uint256)
+  // ERC721
+  TRANSFER_721: "0x42842e0e", // safeTransferFrom(address,address,uint256)
+  TRANSFER_721_DATA: "0xb88d4fde", // safeTransferFrom(address,address,uint256,bytes)
+  // ERC1155
+  TRANSFER_SINGLE: "0xf242432a", // safeTransferFrom(address,address,uint256,uint256,bytes)
+  TRANSFER_BATCH: "0x2eb2c2d6", // safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)
+  PROXY_FUNCTION: "0x4f1ef286",
+  DELEGATE_CALL: "0x5c60da1b",
+};
+
 export const getChainName = (contractName: string) => {
   return contractName
     .replace("Registry", "")
@@ -141,8 +155,15 @@ export async function getImplementationAddress(
   blockNumber: bigint
 ): Promise<ImplementationResult | null> {
   try {
-    if (!contractAddress || contractAddress === "0x") {
-      console.log("Invalid contract address provided");
+    if (
+      !contractAddress ||
+      contractAddress === "0x" ||
+      contractAddress.toLowerCase() ===
+        "0x0000000000000000000000000000000000000000"
+    ) {
+      console.log(
+        "Invalid or zero contract address provided to getImplementationAddress"
+      );
       return null;
     }
 
@@ -154,10 +175,9 @@ export async function getImplementationAddress(
 
     const client = context.client;
 
-    // Check both known implementation slots
     const IMPLEMENTATION_SLOTS = [
-      "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc", // EIP-1967
-      "0x0000000000000000000000000000000000000000000000000000000000000000", // Traditional slot
+      "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+      "0x0000000000000000000000000000000000000000000000000000000000000000",
     ];
 
     for (const slot of IMPLEMENTATION_SLOTS) {
@@ -167,39 +187,35 @@ export async function getImplementationAddress(
         blockNumber: blockNumber,
       });
 
-      if (implementationAddress && implementationAddress !== "0x") {
+      if (
+        implementationAddress &&
+        implementationAddress !== "0x" &&
+        implementationAddress !== "0x0000000000000000000000000000000000000000"
+      ) {
         // More careful cleaning of the implementation address
         const cleanAddress = "0x" + implementationAddress.slice(-40);
 
         // Validate the cleaned address
-        if (cleanAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+        if (
+          cleanAddress.match(/^0x[a-fA-F0-9]{40}$/) &&
+          cleanAddress.toLowerCase() !==
+            "0x0000000000000000000000000000000000000000"
+        ) {
           console.log(
             `Found implementation at slot ${slot} for ${formattedAddress}: ${cleanAddress}`
           );
 
-          // Verify the implementation has code
-          const code = await client.getCode({
-            address: cleanAddress as `0x${string}`,
-            blockNumber: blockNumber,
-          });
+          const implementationAbi = await checkAndStoreAbi(
+            cleanAddress,
+            chainId,
+            context,
+            blockNumber
+          );
 
-          if (code && code !== "0x") {
-            const implementationAbi = await checkAndStoreAbi(
-              cleanAddress,
-              chainId,
-              context,
-              blockNumber
-            );
-
-            return {
-              address: cleanAddress,
-              abi: implementationAbi,
-            };
-          } else {
-            console.log(
-              `No code found at implementation address: ${cleanAddress}`
-            );
-          }
+          return {
+            address: cleanAddress,
+            abi: implementationAbi,
+          };
         }
       }
     }
@@ -224,12 +240,16 @@ export async function checkAndStoreAbi(
   blockNumber: bigint
 ) {
   try {
-    if (!contractAddress || contractAddress === "0x") {
-      console.log("Invalid contract address provided");
+    if (
+      !contractAddress ||
+      contractAddress === "0x" ||
+      contractAddress.toLowerCase() ===
+        "0x0000000000000000000000000000000000000000"
+    ) {
+      console.log("Invalid or zero contract address provided");
       return null;
     }
 
-    // Ensure address is properly formatted
     const formattedAddress = contractAddress.toLowerCase();
     if (!formattedAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
       console.log(`Invalid address format: ${contractAddress}`);
@@ -245,7 +265,6 @@ export async function checkAndStoreAbi(
     });
 
     if (code === "0x" || !code) {
-      console.log(`No code at address ${formattedAddress}`);
       return null;
     }
 
@@ -260,11 +279,9 @@ export async function checkAndStoreAbi(
     ]);
 
     if (existingAbi.rows.length > 0) {
-      console.log(`Found existing ABI for ${formattedAddress}`);
       return existingAbi.rows[0].abi_text;
     }
 
-    // If not found, fetch from abidata.net
     const network =
       chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : null;
     if (!network) {
@@ -276,21 +293,15 @@ export async function checkAndStoreAbi(
     console.log(`Fetching ABI from: ${url}`);
 
     const response = await axios.get(url, { timeout: 10000 });
-    console.log(`API Response status: ${response.status}`);
 
     if (!response.data?.ok || !response.data.abi) {
       throw new Error("No ABI found in response");
     }
 
     const abi_text = JSON.stringify(response.data.abi);
-    console.log(`ABI text length: ${abi_text.length}`);
 
-    console.log("Generating embedding...");
     const embedding = await generateEmbeddingWithRetry(abi_text);
-    console.log(`Embedding generated: ${embedding ? "success" : "failed"}`);
 
-    // Check if this might be a proxy by using a known Gnosis Safe pattern:
-    // Gnosis Safe proxy ABI typically has 2 entries: constructor with _singleton, and a fallback.
     let abiObj = JSON.parse(abi_text);
     const isProxy =
       Array.isArray(abiObj) &&
@@ -300,9 +311,6 @@ export async function checkAndStoreAbi(
       abiObj[1]?.type === "fallback";
 
     if (isProxy) {
-      console.log(
-        `Detected proxy contract at ${contractAddress}, fetching implementation...`
-      );
       const implementation: ImplementationResult | null =
         await getImplementationAddress(
           contractAddress,
@@ -506,4 +514,126 @@ export async function isSafeTransaction(
     console.error("Error checking Safe status:", error);
     return false;
   }
+}
+
+// Add this helper to convert all BigInts in an object to strings
+export function convertBigIntsToStrings(obj: any): any {
+  if (typeof obj === "bigint") {
+    return obj.toString();
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(convertBigIntsToStrings);
+  }
+  if (typeof obj === "object" && obj !== null) {
+    return Object.fromEntries(
+      Object.entries(obj).map(([key, value]) => [
+        key,
+        convertBigIntsToStrings(value),
+      ])
+    );
+  }
+  return obj;
+}
+
+export interface TokenTransferData {
+  type: "ERC20" | "ERC721" | "ERC1155" | "UNKNOWN";
+  from?: string;
+  to?: string;
+  tokenId?: string;
+  amount?: string;
+  data?: string;
+}
+
+export function decodeTokenTransfer(data: string): TokenTransferData | null {
+  if (!data || data === "0x") return null;
+
+  const methodId = data.slice(0, 10).toLowerCase();
+  const params = data.slice(10);
+
+  try {
+    switch (methodId) {
+      case SIGNATURES.TRANSFER: {
+        // ERC20 transfer(address,uint256)
+        return {
+          type: "ERC20",
+          to: "0x" + params.slice(24, 64),
+          amount: BigInt("0x" + params.slice(64)).toString(),
+        };
+      }
+      case SIGNATURES.TRANSFER_FROM: {
+        // ERC20/ERC721 transferFrom(address,address,uint256)
+        return {
+          type: "ERC20", // We'll refine this later with contract checks
+          from: "0x" + params.slice(24, 64),
+          to: "0x" + params.slice(88, 128),
+          amount: BigInt("0x" + params.slice(128)).toString(),
+        };
+      }
+      case SIGNATURES.TRANSFER_721:
+      case SIGNATURES.TRANSFER_721_DATA: {
+        // ERC721 safeTransferFrom
+        return {
+          type: "ERC721",
+          from: "0x" + params.slice(24, 64),
+          to: "0x" + params.slice(88, 128),
+          tokenId: BigInt("0x" + params.slice(128, 192)).toString(),
+          data:
+            methodId === SIGNATURES.TRANSFER_721_DATA
+              ? "0x" + params.slice(192)
+              : undefined,
+        };
+      }
+      case SIGNATURES.TRANSFER_SINGLE: {
+        // ERC1155 single transfer
+        return {
+          type: "ERC1155",
+          from: "0x" + params.slice(24, 64),
+          to: "0x" + params.slice(88, 128),
+          tokenId: BigInt("0x" + params.slice(128, 192)).toString(),
+          amount: BigInt("0x" + params.slice(192, 256)).toString(),
+          data: "0x" + params.slice(256),
+        };
+      }
+      case SIGNATURES.TRANSFER_BATCH: {
+        // ERC1155 batch transfer
+        return {
+          type: "ERC1155",
+          from: "0x" + params.slice(24, 64),
+          to: "0x" + params.slice(88, 128),
+          data: "0x" + params.slice(128), // Further decode arrays if needed
+        };
+      }
+      default:
+        return null;
+    }
+  } catch (error) {
+    console.error("Error decoding token transfer:", error);
+    return null;
+  }
+}
+
+// Add this helper function to process transaction arguments
+export function processArgs(args: any): any {
+  if (!args) return null;
+
+  // Handle arrays
+  if (Array.isArray(args)) {
+    return args.map(processArgs);
+  }
+
+  // Handle BigInt
+  if (typeof args === "bigint") {
+    return args.toString();
+  }
+
+  // Handle objects
+  if (typeof args === "object" && args !== null) {
+    return Object.entries(args).reduce((acc: any, [key, val]) => {
+      acc[key] = processArgs(val);
+      return acc;
+    }, {});
+  }
+
+  // Handle other primitive types
+  return args;
 }
