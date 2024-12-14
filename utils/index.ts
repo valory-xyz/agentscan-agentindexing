@@ -845,6 +845,7 @@ async function fetchWithRetry(
           }`
         );
       }
+      throw error;
     }
   }
 
