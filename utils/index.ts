@@ -774,7 +774,7 @@ export function isProxyContract(abi: string): boolean {
 
 const INITIAL_RETRY_DELAY = 5000;
 const MAX_RETRY_DELAY = 45000;
-const MAX_RETRIES = 20;
+const MAX_RETRIES = 100;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
