@@ -6,7 +6,7 @@ import { createClient } from "redis";
 import { TokenTransferData } from "../src/types";
 
 const TTL = 7 * 24 * 60 * 60;
-// Configure axios instance with optimized settings
+
 const axiosInstance = axios.create({
   timeout: 5000,
   maxContentLength: 500000,
@@ -19,7 +19,6 @@ const redisClient = createClient({
 redisClient.connect().catch(console.error);
 
 const SIGNATURES = {
-  // ERC20
   TRANSFER: "0xa9059cbb", // transfer(address,uint256)
   TRANSFER_FROM: "0x23b872dd", // transferFrom(address,address,uint256)
   // ERC721
@@ -227,7 +226,6 @@ export async function getImplementationAddress(
       );
     }
 
-    // If getImplementation() fails, try storage slots
     const PROXY_IMPLEMENTATION_SLOTS = {
       EIP1967:
         "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
@@ -321,7 +319,6 @@ export async function checkAndStoreAbi(
       });
     }
 
-    // Input Validation
     if (
       !contractAddress ||
       contractAddress === "0x" ||
@@ -337,7 +334,6 @@ export async function checkAndStoreAbi(
       return null;
     }
 
-    // Database Check
     try {
       const checkQuery = `
         SELECT abi_text FROM contract_abis 
@@ -359,7 +355,6 @@ export async function checkAndStoreAbi(
       });
     }
 
-    // Network Determination
     const network =
       chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : null;
     if (!network) {
@@ -369,12 +364,11 @@ export async function checkAndStoreAbi(
       throw new Error(`Unsupported chain ID: ${chainId}`);
     }
 
-    // ABI Fetch
     const url = `https://abidata.net/${contractAddress}?network=${network}`;
     console.log(`[ABI] Fetching ABI from: ${url}`);
 
     try {
-      const response = await axios.get(url, { timeout: 25000 });
+      const response = await fetchWithRetry(url);
 
       if (!response.data?.ok || !response.data.abi) {
         console.error(
@@ -510,10 +504,44 @@ export async function checkAndStoreAbi(
       console.log(`DB Insert Result: ${result.rowCount} rows affected`);
       return abi_text;
     } catch (error) {
-      console.error(`[ABI] Error fetching ABI for ${formattedAddress}:`, {
-        error: error instanceof Error ? error.message : "Unknown error",
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const headers = error.response?.headers;
+
+        console.error(
+          `[ABI] HTTP error fetching ABI for ${formattedAddress}:`,
+          {
+            status,
+            headers: {
+              "retry-after": headers?.["retry-after"],
+              "ratelimit-reset": headers?.["ratelimit-reset"],
+              "ratelimit-remaining": headers?.["ratelimit-remaining"],
+            },
+            message: error.message,
+            url: error.config?.url,
+          }
+        );
+
+        if (status === 429) {
+          console.error(
+            `[ABI] Rate limit exceeded for ${formattedAddress} after all retries`
+          );
+        }
+      } else {
+        console.error(`[ABI] Error fetching ABI for ${formattedAddress}:`, {
+          error: error instanceof Error ? error.message : "Unknown error",
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+      }
+
+      try {
+        await redisClient.set(redisKey, "null", {
+          EX: Math.floor(TTL / 2),
+        });
+      } catch (redisError) {
+        console.error(`[ABI] Redis error caching failed request:`, redisError);
+      }
+
       return null;
     }
   } catch (error) {
@@ -559,7 +587,6 @@ export const fetchAndTransformMetadata = async (
     }
   }
 
-  // Force garbage collection after heavy operations
   if (global.gc) {
     global.gc();
   }
@@ -719,4 +746,85 @@ export function isProxyContract(abi: string): boolean {
     console.error("Error checking proxy status:", error);
     return false;
   }
+}
+
+const INITIAL_RETRY_DELAY = 5000; // 5 seconds
+const MAX_RETRY_DELAY = 32000; // 32 seconds
+const MAX_RETRIES = 5;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function getRetryDelay(error: any, attempt: number): number {
+  if (axios.isAxiosError(error) && error.response) {
+    const retryAfter = error.response.headers["retry-after"];
+    if (retryAfter) {
+      if (isNaN(retryAfter as any)) {
+        const retryDate = new Date(retryAfter);
+        if (!isNaN(retryDate.getTime())) {
+          return Math.max(0, retryDate.getTime() - Date.now());
+        }
+      } else {
+        return parseInt(retryAfter) * 1000;
+      }
+    }
+
+    const rateLimitReset = error.response.headers["ratelimit-reset"];
+    if (rateLimitReset) {
+      const resetTime = parseInt(rateLimitReset) * 1000;
+      return Math.max(0, resetTime - Date.now());
+    }
+  }
+
+  const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+  const jitter = Math.random() * 1000;
+  return Math.min(delay + jitter, MAX_RETRY_DELAY);
+}
+
+async function fetchWithRetry(
+  url: string,
+  retries = MAX_RETRIES
+): Promise<any> {
+  let lastError: any;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await axios.get(url, {
+        timeout: 25000,
+        headers: {
+          Accept: "application/json",
+        },
+      });
+      return response;
+    } catch (error) {
+      lastError = error;
+
+      if (axios.isAxiosError(error) && error.response?.status === 429) {
+        const waitTime = getRetryDelay(error, i);
+
+        console.log(
+          `[ABI] Rate limited by abidata.net. Retry ${i + 1}/${retries}.`,
+          `Waiting ${Math.round(waitTime / 1000)}s...`,
+          error.response.headers["retry-after"]
+            ? `(Based on Retry-After header)`
+            : `(Using exponential backoff)`
+        );
+        if (error.response.data) {
+          console.log("[ABI] Error response data:", error.response.data);
+        }
+
+        await wait(waitTime);
+
+        if (i === retries - 1) {
+          throw new Error(
+            `Failed after ${retries} retries due to rate limiting. ` +
+              `Last error: ${error.message}`
+          );
+        }
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw lastError;
 }
