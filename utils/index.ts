@@ -839,6 +839,7 @@ async function fetchWithRetry(
         await wait(waitTime);
         continue;
       }
+      console.error("Error fetching ABI:", error);
 
       throw error;
     }
