@@ -240,13 +240,9 @@ export async function processTransaction(
           try {
             await context.db
               .insert(Transfer)
-              .values({
-                ...transfer,
-                value: BigInt(transfer.value),
-              })
+              .values({ ...transfer })
               .onConflictDoUpdate({
                 ...transfer,
-                value: BigInt(transfer.value),
               });
           } catch (error) {
             console.error(`Error inserting Transfer for ${hash}:`, error);
