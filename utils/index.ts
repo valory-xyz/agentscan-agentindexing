@@ -835,7 +835,10 @@ async function fetchWithRetry(
           );
 
           if (error?.response?.data) {
-            console.log("[ABI] Rate limit response:", error.response.data);
+            console.log(
+              `[ABI] Rate limit response for ${url}:`,
+              error.response.data
+            );
           }
 
           await wait(waitTimeWithJitter);
