@@ -322,6 +322,7 @@ export async function checkAndStoreAbi(
     try {
       const cachedAbi = await redisClient.get(redisKey);
       if (cachedAbi) {
+        console.log(`[ABI] Found cached ABI in Redis for ${formattedAddress}`);
         return cachedAbi;
       }
     } catch (redisError) {
@@ -343,6 +344,9 @@ export async function checkAndStoreAbi(
       ]);
 
       if (existingAbi.rows.length > 0 && existingAbi.rows[0].abi_text) {
+        console.log(
+          `[ABI] Found cached ABI in database for ${formattedAddress}`
+        );
         await redisClient.set(redisKey, existingAbi.rows[0].abi_text, {
           EX: TTL,
         });
