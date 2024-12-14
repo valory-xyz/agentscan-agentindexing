@@ -277,10 +277,15 @@ export async function processTransaction(
       } logs`
     );
 
-    // Log the names of all decoded logs
     console.log(
       `Log Names for ${hash}: ${JSON.parse(transactionData.logs)
-        .map((log: any) => log.decoded?.decoded?.name || "Unknown")
+        .map((log: any) => {
+          const logName = log.decoded?.decoded?.name || "Unknown";
+          if (logName === "Unknown") {
+            return `Unknown(contract: ${log.decoded?.contractAddress}, signature: ${log.decoded?.eventSignature})`;
+          }
+          return logName;
+        })
         .join(", ")}`
     );
 

@@ -302,186 +302,235 @@ export async function checkAndStoreAbi(
 ) {
   const formattedAddress = contractAddress.toLowerCase();
   const redisKey = `abi:${formattedAddress}:${chainId}`;
+
+  console.log(
+    `[ABI] Starting ABI check for ${formattedAddress} on chain ${chainId}`
+  );
+
   try {
-    //check redis first
+    // Redis Check
+    try {
+      const cachedAbi = await redisClient.get(redisKey);
+      if (cachedAbi === "null") {
+        console.log(`[ABI] Cached null ABI found for ${formattedAddress}`);
+        return null;
+      }
+      if (cachedAbi) {
+        console.log(`[ABI] Found cached ABI for ${formattedAddress}`);
+        return cachedAbi;
+      }
+    } catch (redisError) {
+      console.error(`[ABI] Redis error for ${formattedAddress}:`, {
+        error:
+          redisError instanceof Error ? redisError.message : "Unknown error",
+        stack: redisError instanceof Error ? redisError.stack : undefined,
+      });
+    }
 
-    const cachedAbi = await redisClient.get(redisKey);
-    if (cachedAbi === "null") return null;
-    if (cachedAbi) return cachedAbi;
-
+    // Input Validation
     if (
       !contractAddress ||
       contractAddress === "0x" ||
       contractAddress.toLowerCase() ===
         "0x0000000000000000000000000000000000000000"
     ) {
-      console.log("Invalid or zero contract address provided");
+      console.warn(`[ABI] Invalid contract address: ${contractAddress}`);
       return null;
     }
 
     if (!formattedAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
-      console.log(`Invalid address format: ${contractAddress}`);
+      console.warn(`[ABI] Invalid address format: ${contractAddress}`);
       return null;
     }
 
-    const code = await context.client.getCode({
-      address: formattedAddress as `0x${string}`,
-    });
+    // Database Check
+    try {
+      const checkQuery = `
+        SELECT abi_text FROM contract_abis 
+        WHERE address = $1 AND chain_id = $2
+      `;
+      const existingAbi = await pool.query(checkQuery, [
+        formattedAddress,
+        chainId,
+      ]);
 
-    if (code === "0x" || !code) {
-      return null;
+      if (existingAbi.rows.length > 0) {
+        console.log(
+          `[ABI] Found existing ABI in database for ${formattedAddress}`
+        );
+        return existingAbi.rows[0].abi_text;
+      }
+    } catch (dbError) {
+      console.error(`[ABI] Database query error for ${formattedAddress}:`, {
+        error: dbError instanceof Error ? dbError.message : "Unknown error",
+        code: (dbError as any)?.code,
+        stack: dbError instanceof Error ? dbError.stack : undefined,
+      });
     }
 
-    // First check if we already have the ABI
-    const checkQuery = `
-      SELECT abi_text FROM contract_abis 
-      WHERE address = $1 AND chain_id = $2
-    `;
-    const existingAbi = await pool.query(checkQuery, [
-      formattedAddress,
-      chainId,
-    ]);
-
-    if (existingAbi.rows.length > 0) {
-      return existingAbi.rows[0].abi_text;
-    }
-
+    // Network Determination
     const network =
       chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : null;
     if (!network) {
-      console.log(`Unsupported chain ID: ${chainId}`);
+      console.error(
+        `[ABI] Unsupported chain ID: ${chainId} for ${formattedAddress}`
+      );
       throw new Error(`Unsupported chain ID: ${chainId}`);
     }
 
+    // ABI Fetch
     const url = `https://abidata.net/${contractAddress}?network=${network}`;
-    console.log(`Fetching ABI from: ${url}`);
+    console.log(`[ABI] Fetching ABI from: ${url}`);
 
-    const response = await axios.get(url, { timeout: 10000 });
+    try {
+      const response = await axios.get(url, { timeout: 25000 });
 
-    if (!response.data?.ok || !response.data.abi) {
-      throw new Error("No ABI found in response");
-    }
+      if (!response.data?.ok || !response.data.abi) {
+        console.error(
+          `[ABI] Invalid response from ABI service for ${formattedAddress}:`,
+          {
+            status: response.status,
+            statusText: response.statusText,
+            data: response.data,
+          }
+        );
+        throw new Error("No ABI found in response");
+      }
 
-    const abi_text = JSON.stringify(response.data.abi);
+      const abi_text = JSON.stringify(response.data.abi);
+      console.log(`[ABI] Successfully fetched ABI for ${formattedAddress}`);
 
-    const embedding = await generateEmbeddingWithRetry(abi_text);
+      let embedding;
+      try {
+        embedding = await generateEmbeddingWithRetry(abi_text);
+        console.log(`[ABI] Generated embedding for ${formattedAddress}`);
+      } catch (embeddingError) {
+        console.error(
+          `[ABI] Embedding generation failed for ${formattedAddress}:`,
+          {
+            error:
+              embeddingError instanceof Error
+                ? embeddingError.message
+                : "Unknown error",
+            stack:
+              embeddingError instanceof Error
+                ? embeddingError.stack
+                : undefined,
+          }
+        );
+        throw embeddingError;
+      }
 
-    const isProxy = isProxyContract(abi_text);
-
-    if (isProxy) {
-      const implementation: ImplementationResult | null =
-        await getImplementationAddress(
+      // Proxy Check and Implementation
+      const isProxy = isProxyContract(abi_text);
+      if (isProxy) {
+        console.log(`[ABI] Detected proxy contract at ${formattedAddress}`);
+        const implementation = await getImplementationAddress(
           contractAddress,
           chainId,
           context,
           BigInt(blockNumber)
         );
 
-      if (implementation?.abi) {
-        console.log(
-          `Found implementation at ${implementation.address}, storing ABI for proxy`
-        );
+        if (implementation?.abi) {
+          console.log(
+            `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
+          );
 
-        const embedding = await generateEmbeddingWithRetry(implementation.abi);
+          try {
+            const embedding = await generateEmbeddingWithRetry(
+              implementation.abi
+            );
 
-        const insertQuery = `
+            const insertQuery = `
+              INSERT INTO contract_abis (
+                address,
+                chain_id,
+                abi_text,
+                abi_embedding,
+                implementation_address
+              ) VALUES ($1, $2, $3, $4, $5)
+              ON CONFLICT (address, chain_id) 
+              DO UPDATE SET 
+                abi_text = $3,
+                abi_embedding = $4,
+                implementation_address = $5,
+                updated_at = CURRENT_TIMESTAMP
+              RETURNING *
+            `;
+
+            await pool.query(insertQuery, [
+              formattedAddress,
+              chainId,
+              implementation.abi,
+              embedding,
+              implementation.address,
+            ]);
+
+            await redisClient.set(redisKey, implementation.abi, {
+              EX: TTL,
+            });
+
+            return implementation.abi;
+          } catch (embeddingError) {
+            console.error(
+              `[ABI] Embedding generation failed for ${formattedAddress}:`,
+              {
+                error:
+                  embeddingError instanceof Error
+                    ? embeddingError.message
+                    : "Unknown error",
+                stack:
+                  embeddingError instanceof Error
+                    ? embeddingError.stack
+                    : undefined,
+              }
+            );
+            throw embeddingError;
+          }
+        }
+      }
+
+      const insertQuery = `
         INSERT INTO contract_abis (
           address,
           chain_id,
           abi_text,
-          abi_embedding,
-          implementation_address
-        ) VALUES ($1, $2, $3, $4, $5)
+          abi_embedding
+        ) VALUES ($1, $2, $3, $4)
         ON CONFLICT (address, chain_id) 
         DO UPDATE SET 
           abi_text = $3,
           abi_embedding = $4,
-          implementation_address = $5,
           updated_at = CURRENT_TIMESTAMP
         RETURNING *
       `;
 
-        await pool.query(insertQuery, [
-          formattedAddress,
-          chainId,
-          implementation.abi,
-          embedding,
-          implementation.address,
-        ]);
-
-        await redisClient.set(redisKey, implementation.abi, {
-          EX: TTL,
-        });
-
-        return implementation.abi;
-      }
-    }
-
-    const insertQuery = `
-      INSERT INTO contract_abis (
-        address,
-        chain_id,
-        abi_text,
-        abi_embedding
-      ) VALUES ($1, $2, $3, $4)
-      ON CONFLICT (address, chain_id) 
-      DO UPDATE SET 
-        abi_text = $3,
-        abi_embedding = $4,
-        updated_at = CURRENT_TIMESTAMP
-      RETURNING *
-    `;
-
-    const result = await pool.query(insertQuery, [
-      formattedAddress,
-      chainId,
-      abi_text,
-      embedding,
-    ]);
-
-    await redisClient.set(redisKey, abi_text, {
-      EX: TTL,
-    });
-
-    console.log(`DB Insert Result: ${result.rowCount} rows affected`);
-    return abi_text;
-  } catch (error: any) {
-    console.error(`Error processing ABI for ${contractAddress}:`, {
-      message: error.message,
-      type: error.constructor.name,
-      response: error.response?.data,
-      status: error.response?.status,
-    });
-
-    const insertQuery = `
-      INSERT INTO contract_abis (
-        address,
-        chain_id,
-        abi_text,
-        abi_embedding
-      ) VALUES ($1, $2, NULL, NULL)
-      ON CONFLICT (address, chain_id) DO NOTHING
-      RETURNING *
-    `;
-
-    try {
       const result = await pool.query(insertQuery, [
-        contractAddress.toLowerCase(),
+        formattedAddress,
         chainId,
+        abi_text,
+        embedding,
       ]);
-      console.log(
-        `Stored null values for ${formattedAddress}. Rows affected: ${result.rowCount}`
-      );
-      await redisClient.set(redisKey, "null", {
+
+      await redisClient.set(redisKey, abi_text, {
         EX: TTL,
       });
-    } catch (dbError: any) {
-      console.error(`Database error storing null values:`, {
-        message: dbError.message,
-        code: dbError.code,
-      });
-    }
 
+      console.log(`DB Insert Result: ${result.rowCount} rows affected`);
+      return abi_text;
+    } catch (error) {
+      console.error(`[ABI] Error fetching ABI for ${formattedAddress}:`, {
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      return null;
+    }
+  } catch (error) {
+    console.error(`[ABI] Error processing ABI for ${formattedAddress}:`, {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return null;
   }
 }
