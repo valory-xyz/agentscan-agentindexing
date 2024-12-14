@@ -5,7 +5,7 @@ import { replaceBigInts } from "ponder";
 import { createClient } from "redis";
 import { TokenTransferData } from "../src/types";
 
-const TTL = 7 * 24 * 60 * 60;
+const TTL = 7 * 24 * 60 * 60; // 1 week
 
 const axiosInstance = axios.create({
   timeout: 5000,
@@ -304,23 +304,6 @@ export async function checkAndStoreAbi(
   const redisKey = `abi:${formattedAddress}:${chainId}`;
 
   try {
-    try {
-      const cachedAbi = await redisClient.get(redisKey);
-      if (cachedAbi === "null") {
-        console.log(`[ABI] Cached null ABI found for ${formattedAddress}`);
-        return null;
-      }
-      if (cachedAbi) {
-        return cachedAbi;
-      }
-    } catch (redisError) {
-      console.error(`[ABI] Redis error for ${formattedAddress}:`, {
-        error:
-          redisError instanceof Error ? redisError.message : "Unknown error",
-        stack: redisError instanceof Error ? redisError.stack : undefined,
-      });
-    }
-
     if (
       !contractAddress ||
       contractAddress === "0x" ||
@@ -337,6 +320,19 @@ export async function checkAndStoreAbi(
     }
 
     try {
+      const cachedAbi = await redisClient.get(redisKey);
+      if (cachedAbi) {
+        return cachedAbi;
+      }
+    } catch (redisError) {
+      console.error(`[ABI] Redis error for ${formattedAddress}:`, {
+        error:
+          redisError instanceof Error ? redisError.message : "Unknown error",
+        stack: redisError instanceof Error ? redisError.stack : undefined,
+      });
+    }
+
+    try {
       const checkQuery = `
         SELECT abi_text FROM contract_abis 
         WHERE address = $1 AND chain_id = $2
@@ -346,7 +342,10 @@ export async function checkAndStoreAbi(
         chainId,
       ]);
 
-      if (existingAbi.rows.length > 0) {
+      if (existingAbi.rows.length > 0 && existingAbi.rows[0].abi_text) {
+        await redisClient.set(redisKey, existingAbi.rows[0].abi_text, {
+          EX: TTL,
+        });
         return existingAbi.rows[0].abi_text;
       }
     } catch (dbError) {
@@ -527,14 +526,6 @@ export async function checkAndStoreAbi(
           error: error instanceof Error ? error.message : "Unknown error",
           stack: error instanceof Error ? error.stack : undefined,
         });
-      }
-
-      try {
-        await redisClient.set(redisKey, "null", {
-          EX: Math.floor(TTL / 2),
-        });
-      } catch (redisError) {
-        console.error(`[ABI] Redis error caching failed request:`, redisError);
       }
 
       return null;
