@@ -769,8 +769,8 @@ export function isProxyContract(abi: string): boolean {
 }
 
 const INITIAL_RETRY_DELAY = 5000;
-const MAX_RETRY_DELAY = 32000;
-const MAX_RETRIES = 5;
+const MAX_RETRY_DELAY = 45000;
+const MAX_RETRIES = 20;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -796,7 +796,7 @@ function getRetryDelay(error: any, attempt: number): number {
   }
 
   const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
-  const jitter = Math.random() * 1000;
+  const jitter = Math.random() * 2000;
   return Math.min(delay + jitter, MAX_RETRY_DELAY);
 }
 
@@ -809,7 +809,7 @@ async function fetchWithRetry(
   for (let i = 0; i < retries; i++) {
     try {
       const response = await axios.get(url, {
-        timeout: 25000,
+        timeout: 30000,
         headers: {
           Accept: "application/json",
         },
@@ -818,33 +818,40 @@ async function fetchWithRetry(
     } catch (error) {
       lastError = error;
 
-      if (axios.isAxiosError(error) && error.response?.status === 429) {
-        const waitTime = getRetryDelay(error, i);
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
 
-        console.log(
-          `[ABI] Rate limited by abidata.net. Retry ${i + 1}/${retries}.`,
-          `Waiting ${Math.round(waitTime / 1000)}s...`,
-          error.response.headers["retry-after"]
-            ? `(Based on Retry-After header)`
-            : `(Using exponential backoff)`
-        );
-        if (error?.response?.data) {
-          console.log("[ABI] Error response data:", error.response.data);
-        }
+        if (status === 429) {
+          const waitTime = getRetryDelay(error, i);
 
-        await wait(waitTime);
+          const jitter = Math.random() * 1000;
+          const waitTimeWithJitter = waitTime + jitter;
+          const remainingAttempts = retries - i - 1;
 
-        if (i === retries - 1) {
-          throw new Error(
-            `Failed after ${retries} retries due to rate limiting. ` +
-              `Last error: ${error.message}`
+          console.log(
+            `[ABI] Rate limited by abidata.net. Attempt ${i + 1}/${retries}. ` +
+              `Waiting ${Math.round(waitTime / 1000)}s... ` +
+              `(${remainingAttempts} attempts remaining)`
           );
+
+          if (error?.response?.data) {
+            console.log("[ABI] Rate limit response:", error.response.data);
+          }
+
+          await wait(waitTimeWithJitter);
+          continue;
         }
+
+        const waitTime = Math.min(1000 * (i + 1), 5000);
+        await wait(waitTime);
         continue;
       }
       throw error;
     }
   }
 
-  throw lastError;
+  throw new Error(
+    `Failed after ${retries} retries due to rate limiting. ` +
+      `Last error: ${lastError?.message || "Unknown error"}`
+  );
 }
