@@ -778,30 +778,34 @@ const MAX_RETRIES = 100;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function getRetryDelay(error: any, attempt: number): number {
-  if (axios.isAxiosError(error) && error.response) {
-    const retryAfter = error.response.headers["retry-after"];
-    if (retryAfter) {
+function getRetryDelay(error: any): number {
+  if (axios.isAxiosError(error) && error.response?.headers) {
+    const headers = error.response.headers;
+
+    // If Retry-After is present, always use it
+    if (headers["retry-after"]) {
+      const retryAfter = headers["retry-after"];
+      // If Retry-After is a date
       if (isNaN(retryAfter as any)) {
         const retryDate = new Date(retryAfter);
         if (!isNaN(retryDate.getTime())) {
           return Math.max(0, retryDate.getTime() - Date.now());
         }
       } else {
+        // If Retry-After is seconds
         return parseInt(retryAfter) * 1000;
       }
     }
 
-    const rateLimitReset = error.response.headers["ratelimit-reset"];
-    if (rateLimitReset) {
-      const resetTime = parseInt(rateLimitReset) * 1000;
+    // If ratelimit-reset is present, use it
+    if (headers["ratelimit-reset"]) {
+      const resetTime = parseInt(headers["ratelimit-reset"]) * 1000;
       return Math.max(0, resetTime - Date.now());
     }
   }
 
-  const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
-  const jitter = Math.random() * 2000;
-  return Math.min(delay + jitter, MAX_RETRY_DELAY);
+  // Only if no headers are present, use a default delay
+  return INITIAL_RETRY_DELAY;
 }
 
 async function fetchWithRetry(
@@ -822,43 +826,27 @@ async function fetchWithRetry(
     } catch (error) {
       lastError = error;
 
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status;
+      if (axios.isAxiosError(error) && error.response?.status === 429) {
+        const waitTime = getRetryDelay(error);
+        const remainingAttempts = retries - i - 1;
 
-        if (status === 429) {
-          const waitTime = getRetryDelay(error, i);
+        console.log(
+          `[ABI] Rate limited by abidata.net. Attempt ${i + 1}/${retries}. ` +
+            `Waiting ${Math.round(waitTime / 1000)}s... ` +
+            `(${remainingAttempts} attempts remaining)`
+        );
 
-          const jitter = Math.random() * 1000;
-          const waitTimeWithJitter = waitTime + jitter;
-          const remainingAttempts = retries - i - 1;
-
-          console.log(
-            `[ABI] Rate limited by abidata.net. Attempt ${i + 1}/${retries}. ` +
-              `Waiting ${Math.round(waitTime / 1000)}s... ` +
-              `(${remainingAttempts} attempts remaining)`
-          );
-
-          if (error?.response?.data) {
-            console.log(
-              `[ABI] Rate limit response for ${url}:`,
-              error.response.data
-            );
-          }
-
-          await wait(waitTimeWithJitter);
-          continue;
-        }
-
-        const waitTime = Math.min(1000 * (i + 1), 5000);
         await wait(waitTime);
         continue;
       }
+
       throw error;
     }
   }
 
   throw new Error(
-    `Failed after ${retries} retries due to rate limiting. ` +
-      `Last error: ${lastError?.message || "Unknown error"}`
+    `Failed after ${retries} retries. Last error: ${
+      lastError?.message || "Unknown error"
+    }`
   );
 }
