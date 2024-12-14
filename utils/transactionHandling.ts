@@ -125,14 +125,12 @@ export async function processTransaction(
   isFromTransaction: boolean
 ) {
   try {
-    // Add null checks and provide default values
     const fromAddress = event.transaction?.from?.toString() || "";
     const toAddress = event.transaction?.to?.toString() || "";
     const input = event.transaction?.input || "0x";
     const chainId = context.network?.chainId;
     const blockNumber = event.block?.number;
 
-    // Validate required fields
     if (!hash || !chainId || !blockNumber) {
       console.error("Missing required transaction data:", {
         hash,

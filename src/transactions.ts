@@ -5,46 +5,37 @@ import { checkAndStoreAbi, REGISTER_NAMES } from "../utils";
 import { processTransaction } from "../utils/transactionHandling";
 
 REGISTER_NAMES.forEach((contractName) => {
-  ponder.on(
-    `${contractName}:transaction:from`,
-    async ({ event, context }: any) => {
-      await processTransaction(event.transaction.hash, event, context, true);
+  ponder.on(`${contractName}:transaction:from`, ({ event, context }: any) => {
+    void processTransaction(event.transaction.hash, event, context, true);
 
-      if (event.transaction.to) {
-        console.log(
-          `Checking ABI for ${event.transaction.to} in processTransaction`
-        );
-        await checkAndStoreAbi(
-          event.transaction.to.toString(),
-          context.network.chainId as any,
-          context,
-          BigInt(event.block.number)
-        );
-      }
-
-      console.log(`Transaction processed: ${event.transaction.hash}`);
+    if (event.transaction.to) {
+      console.log(
+        `Checking ABI for ${event.transaction.to} in processTransaction`
+      );
+      void checkAndStoreAbi(
+        event.transaction.to.toString(),
+        context.network.chainId as any,
+        context,
+        BigInt(event.block.number)
+      );
     }
-  );
+  });
 
-  ponder.on(
-    `${contractName}:transaction:to`,
-    async ({ event, context }: any) => {
-      await processTransaction(event.transaction.hash, event, context, false);
+  ponder.on(`${contractName}:transaction:to`, ({ event, context }: any) => {
+    void processTransaction(event.transaction.hash, event, context, false);
 
-      if (event.transaction.from) {
-        console.log(
-          `Checking ABI for ${event.transaction.from} in processTransaction`
-        );
-        await checkAndStoreAbi(
-          event.transaction.from.toString(),
-          context.network.chainId as any,
-          context,
-          BigInt(event.block.number)
-        );
-      }
-      console.log(`Transaction processed: ${event.transaction.hash}`);
+    if (event.transaction.from) {
+      console.log(
+        `Checking ABI for ${event.transaction.from} in processTransaction`
+      );
+      void checkAndStoreAbi(
+        event.transaction.from.toString(),
+        context.network.chainId as any,
+        context,
+        BigInt(event.block.number)
+      );
     }
-  );
+  });
 
   ponder.on(`${contractName}:transfer:to`, async ({ event, context }) => {
     console.log(`Handling ${contractName}:transfer:to event`);
