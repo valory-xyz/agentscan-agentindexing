@@ -303,12 +303,7 @@ export async function checkAndStoreAbi(
   const formattedAddress = contractAddress.toLowerCase();
   const redisKey = `abi:${formattedAddress}:${chainId}`;
 
-  console.log(
-    `[ABI] Starting ABI check for ${formattedAddress} on chain ${chainId}`
-  );
-
   try {
-    // Redis Check
     try {
       const cachedAbi = await redisClient.get(redisKey);
       if (cachedAbi === "null") {
@@ -316,7 +311,6 @@ export async function checkAndStoreAbi(
         return null;
       }
       if (cachedAbi) {
-        console.log(`[ABI] Found cached ABI for ${formattedAddress}`);
         return cachedAbi;
       }
     } catch (redisError) {
@@ -355,9 +349,6 @@ export async function checkAndStoreAbi(
       ]);
 
       if (existingAbi.rows.length > 0) {
-        console.log(
-          `[ABI] Found existing ABI in database for ${formattedAddress}`
-        );
         return existingAbi.rows[0].abi_text;
       }
     } catch (dbError) {
@@ -421,7 +412,6 @@ export async function checkAndStoreAbi(
         throw embeddingError;
       }
 
-      // Proxy Check and Implementation
       const isProxy = isProxyContract(abi_text);
       if (isProxy) {
         console.log(`[ABI] Detected proxy contract at ${formattedAddress}`);
