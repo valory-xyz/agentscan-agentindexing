@@ -838,10 +838,13 @@ async function fetchWithRetry(
 
         await wait(waitTime);
         continue;
+      } else {
+        console.error(
+          `[ABI] Failed to fetch ABI for ${url}. Last error: ${
+            lastError?.message || "Unknown error"
+          }`
+        );
       }
-      console.error("Error fetching ABI:", error);
-
-      throw error;
     }
   }
 
