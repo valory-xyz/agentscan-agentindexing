@@ -237,6 +237,8 @@ export async function getImplementationAddress(
         "0xa619486e6a192c629d6e5c69ba3efd8478c19a6022185a277f24bc5b6e1060f9",
       OPENZEPPELIN_PROXY:
         "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+      KARMA_PROXY:
+        "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f",
     } as const;
 
     for (const [slotType, slot] of Object.entries(PROXY_IMPLEMENTATION_SLOTS)) {
@@ -726,20 +728,29 @@ export function isProxyContract(abi: string): boolean {
   try {
     const abiObj = JSON.parse(abi);
 
-    // Check for proxy patterns
     const isProxy =
-      (Array.isArray(abiObj) &&
-        abiObj.length === 2 &&
+      Array.isArray(abiObj) &&
+      ((abiObj.length === 2 &&
         abiObj[0]?.type === "constructor" &&
         abiObj[0]?.inputs?.[0]?.name === "_singleton" &&
         abiObj[1]?.type === "fallback") ||
-      abiObj.some(
-        (item: any) =>
-          item.type === "function" &&
-          item.name === "getImplementation" &&
-          item.outputs?.length === 1 &&
-          item.outputs[0].type === "address"
-      );
+        abiObj.some(
+          (item: any) =>
+            item.type === "function" &&
+            item.name === "getImplementation" &&
+            item.outputs?.length === 1 &&
+            item.outputs[0].type === "address"
+        ) ||
+        (abiObj.some(
+          (item: any) =>
+            item.type === "constructor" &&
+            item.inputs?.length === 2 &&
+            item.inputs[0]?.type === "address" &&
+            item.inputs[0]?.name === "implementation" &&
+            item.inputs[1]?.type === "bytes" &&
+            item.inputs[1]?.name === "karmaData"
+        ) &&
+          abiObj.some((item: any) => item.type === "fallback")));
 
     return isProxy;
   } catch (error) {
@@ -748,8 +759,8 @@ export function isProxyContract(abi: string): boolean {
   }
 }
 
-const INITIAL_RETRY_DELAY = 5000; // 5 seconds
-const MAX_RETRY_DELAY = 32000; // 32 seconds
+const INITIAL_RETRY_DELAY = 5000;
+const MAX_RETRY_DELAY = 32000;
 const MAX_RETRIES = 5;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
