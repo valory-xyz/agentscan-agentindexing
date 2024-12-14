@@ -385,32 +385,11 @@ export async function checkAndStoreAbi(
       }
 
       const abi_text = JSON.stringify(response.data.abi);
-      console.log(`[ABI] Successfully fetched ABI for ${formattedAddress}`);
 
-      let embedding;
-      try {
-        embedding = await generateEmbeddingWithRetry(abi_text);
-        console.log(`[ABI] Generated embedding for ${formattedAddress}`);
-      } catch (embeddingError) {
-        console.error(
-          `[ABI] Embedding generation failed for ${formattedAddress}:`,
-          {
-            error:
-              embeddingError instanceof Error
-                ? embeddingError.message
-                : "Unknown error",
-            stack:
-              embeddingError instanceof Error
-                ? embeddingError.stack
-                : undefined,
-          }
+      if (isProxyContract(abi_text)) {
+        console.log(
+          `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
         );
-        throw embeddingError;
-      }
-
-      const isProxy = isProxyContract(abi_text);
-      if (isProxy) {
-        console.log(`[ABI] Detected proxy contract at ${formattedAddress}`);
         const implementation = await getImplementationAddress(
           contractAddress,
           chainId,
@@ -458,23 +437,38 @@ export async function checkAndStoreAbi(
             });
 
             return implementation.abi;
-          } catch (embeddingError) {
+          } catch (error) {
             console.error(
-              `[ABI] Embedding generation failed for ${formattedAddress}:`,
-              {
-                error:
-                  embeddingError instanceof Error
-                    ? embeddingError.message
-                    : "Unknown error",
-                stack:
-                  embeddingError instanceof Error
-                    ? embeddingError.stack
-                    : undefined,
-              }
+              `[ABI] Error storing implementation ABI for ${formattedAddress}:`,
+              error
             );
-            throw embeddingError;
+            throw error;
           }
         }
+        return null;
+      }
+
+      console.log(`[ABI] Successfully fetched ABI for ${formattedAddress}`);
+
+      let embedding;
+      try {
+        embedding = await generateEmbeddingWithRetry(abi_text);
+        console.log(`[ABI] Generated embedding for ${formattedAddress}`);
+      } catch (embeddingError) {
+        console.error(
+          `[ABI] Embedding generation failed for ${formattedAddress}:`,
+          {
+            error:
+              embeddingError instanceof Error
+                ? embeddingError.message
+                : "Unknown error",
+            stack:
+              embeddingError instanceof Error
+                ? embeddingError.stack
+                : undefined,
+          }
+        );
+        throw embeddingError;
       }
 
       const insertQuery = `
@@ -492,7 +486,7 @@ export async function checkAndStoreAbi(
         RETURNING *
       `;
 
-      const result = await pool.query(insertQuery, [
+      await pool.query(insertQuery, [
         formattedAddress,
         chainId,
         abi_text,
@@ -503,7 +497,6 @@ export async function checkAndStoreAbi(
         EX: TTL,
       });
 
-      console.log(`DB Insert Result: ${result.rowCount} rows affected`);
       return abi_text;
     } catch (error) {
       if (axios.isAxiosError(error)) {
@@ -728,10 +721,8 @@ export function isProxyContract(abi: string): boolean {
   try {
     const abiObj = JSON.parse(abi);
 
-    // Check for various proxy patterns
     const isProxy =
       Array.isArray(abiObj) &&
-      // Gnosis Safe Proxy Pattern
       ((abiObj.length === 2 &&
         abiObj[0]?.type === "constructor" &&
         abiObj[0]?.inputs?.length === 1 &&
@@ -739,7 +730,6 @@ export function isProxyContract(abi: string): boolean {
         abiObj[0]?.inputs[0]?.type === "address" &&
         abiObj[1]?.type === "fallback" &&
         abiObj[1]?.stateMutability === "payable") ||
-        // getImplementation function pattern
         abiObj.some(
           (item: any) =>
             item.type === "function" &&
@@ -747,7 +737,6 @@ export function isProxyContract(abi: string): boolean {
             item.outputs?.length === 1 &&
             item.outputs[0].type === "address"
         ) ||
-        // Karma proxy pattern
         (abiObj.some(
           (item: any) =>
             item.type === "constructor" &&
@@ -760,7 +749,6 @@ export function isProxyContract(abi: string): boolean {
           abiObj.some((item: any) => item.type === "fallback")));
 
     if (isProxy) {
-      // Log which pattern was matched for debugging
       if (
         abiObj.length === 2 &&
         abiObj[0]?.inputs?.[0]?.name === "_singleton"
