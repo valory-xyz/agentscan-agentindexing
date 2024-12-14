@@ -728,12 +728,18 @@ export function isProxyContract(abi: string): boolean {
   try {
     const abiObj = JSON.parse(abi);
 
+    // Check for various proxy patterns
     const isProxy =
       Array.isArray(abiObj) &&
+      // Gnosis Safe Proxy Pattern
       ((abiObj.length === 2 &&
         abiObj[0]?.type === "constructor" &&
-        abiObj[0]?.inputs?.[0]?.name === "_singleton" &&
-        abiObj[1]?.type === "fallback") ||
+        abiObj[0]?.inputs?.length === 1 &&
+        abiObj[0]?.inputs[0]?.name === "_singleton" &&
+        abiObj[0]?.inputs[0]?.type === "address" &&
+        abiObj[1]?.type === "fallback" &&
+        abiObj[1]?.stateMutability === "payable") ||
+        // getImplementation function pattern
         abiObj.some(
           (item: any) =>
             item.type === "function" &&
@@ -741,6 +747,7 @@ export function isProxyContract(abi: string): boolean {
             item.outputs?.length === 1 &&
             item.outputs[0].type === "address"
         ) ||
+        // Karma proxy pattern
         (abiObj.some(
           (item: any) =>
             item.type === "constructor" &&
@@ -751,6 +758,29 @@ export function isProxyContract(abi: string): boolean {
             item.inputs[1]?.name === "karmaData"
         ) &&
           abiObj.some((item: any) => item.type === "fallback")));
+
+    if (isProxy) {
+      // Log which pattern was matched for debugging
+      if (
+        abiObj.length === 2 &&
+        abiObj[0]?.inputs?.[0]?.name === "_singleton"
+      ) {
+        console.log("Detected Gnosis Safe Proxy Pattern");
+      } else if (
+        abiObj.some((item: any) => item.name === "getImplementation")
+      ) {
+        console.log("Detected getImplementation Pattern");
+      } else if (
+        abiObj.some(
+          (item: any) =>
+            item.type === "constructor" &&
+            item.inputs?.length === 2 &&
+            item.inputs[0]?.name === "implementation"
+        )
+      ) {
+        console.log("Detected Karma Proxy Pattern");
+      }
+    }
 
     return isProxy;
   } catch (error) {
