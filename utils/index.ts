@@ -808,7 +808,7 @@ async function fetchWithRetry(
             ? `(Based on Retry-After header)`
             : `(Using exponential backoff)`
         );
-        if (error.response.data) {
+        if (error?.response?.data) {
           console.log("[ABI] Error response data:", error.response.data);
         }
 
