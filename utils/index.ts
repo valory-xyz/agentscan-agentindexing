@@ -658,7 +658,6 @@ async function storeAbiInDatabase({
   embedding: string;
   implementationAddress: string | null;
 }) {
-  console.log(`[ABI] Storing ABI for ${id} in database`, content);
   try {
     const insertQuery = `
       INSERT INTO context_embeddings (
