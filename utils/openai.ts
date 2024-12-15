@@ -1,9 +1,11 @@
 import { OpenAI } from "openai";
 import dotenv from "dotenv";
 import pgvector from "pgvector";
+import { withRetry } from "viem";
 
-export const MAX_TOKENS = 7500;
-export const TOKEN_OVERLAP = 200;
+export const MAX_TOKENS = 6000;
+export const TOKEN_OVERLAP = 25;
+export const MIN_CHUNK_LENGTH = 100;
 
 dotenv.config();
 
@@ -11,202 +13,285 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+// Add type for retry options
+interface RetryOptions {
+  retryDelay?: number;
+  retryCount?: number;
 }
 
-export async function generateEmbeddingWithRetry(
+// Helper function to estimate tokens (rough approximation)
+export function estimateTokens(text: string): number {
+  // More aggressive token estimation
+  if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
+    // Even more conservative for JSON/ABI content
+    return Math.ceil(text.length / 2); // Changed from 2.5 to 2
+  }
+  const hasCode = /[{}\[\]()]/g.test(text);
+  return Math.ceil(text.length / (hasCode ? 2 : 3)); // More conservative estimates
+}
+// Content-specific token limits
+const TOKEN_LIMITS = {
+  ABI: {
+    MAX_TOKENS: 1000,
+    TOKEN_OVERLAP: 20,
+    MIN_CHUNK_LENGTH: 50,
+    ABSOLUTE_MAX: 6000,
+  },
+  CODE: {
+    MAX_TOKENS: 5000,
+    TOKEN_OVERLAP: 100,
+    MIN_CHUNK_LENGTH: 100,
+    ABSOLUTE_MAX: 7000,
+  },
+  DEFAULT: {
+    MAX_TOKENS: 6000,
+    TOKEN_OVERLAP: 200,
+    MIN_CHUNK_LENGTH: 100,
+    ABSOLUTE_MAX: 7500,
+  },
+};
+
+// ABI detection
+function isABI(text: string): boolean {
+  try {
+    const content = JSON.parse(text);
+    if (!Array.isArray(content)) return false;
+
+    return content.some(
+      (item) =>
+        item &&
+        typeof item === "object" &&
+        ((item.type &&
+          ["function", "event", "constructor"].includes(item.type)) ||
+          (item.inputs && Array.isArray(item.inputs)) ||
+          (item.stateMutability && typeof item.stateMutability === "string"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function splitTextIntoChunks(
   text: string,
-  maxRetries: number = 3,
-  initialDelay: number = 200
-): Promise<any> {
-  const estimatedTokens = estimateTokens(text);
+  maxTokens: number = TOKEN_LIMITS.DEFAULT.MAX_TOKENS
+): string[] {
+  if (!text) return [];
 
-  if (estimatedTokens <= MAX_TOKENS) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const cleanedText = text.replace(/[\r\n]/g, " ");
-        const embeddingResponse = await openai.embeddings.create({
-          model: "text-embedding-3-small",
-          input: cleanedText,
-          dimensions: 512,
-        });
+  // Determine content type and get appropriate limits
+  let limits = TOKEN_LIMITS.DEFAULT;
+  if (isABI(text)) {
+    console.log("Detected ABI content, using specialized splitting...");
+    limits = TOKEN_LIMITS.ABI;
+    return splitABIContent(text, limits);
+  } else if (/[{}\[\]()]/g.test(text)) {
+    console.log("Detected code content, using code-specific splitting...");
+    limits = TOKEN_LIMITS.CODE;
+  }
 
-        return pgvector.toSql(embeddingResponse.data?.[0]?.embedding);
-      } catch (error: any) {
-        if (
-          error.status === 400 &&
-          error.message?.includes("maximum context length")
-        ) {
-          break;
+  const actualMaxTokens = Math.min(maxTokens, limits.ABSOLUTE_MAX);
+  const chunks: string[] = [];
+
+  // Helper function to safely add chunks
+  const addChunk = (chunk: string) => {
+    const trimmed = chunk.trim();
+    if (trimmed.length >= limits.MIN_CHUNK_LENGTH) {
+      const estimatedSize = estimateTokens(trimmed);
+      if (estimatedSize <= limits.ABSOLUTE_MAX) {
+        chunks.push(trimmed);
+      } else {
+        // Split large chunks into smaller pieces
+        const subChunks = splitBySize(trimmed, actualMaxTokens, limits);
+        chunks.push(...subChunks);
+      }
+    }
+  };
+
+  // Helper function for splitting by size
+  const splitBySize = (
+    text: string,
+    maxSize: number,
+    limits: typeof TOKEN_LIMITS.DEFAULT
+  ): string[] => {
+    const localChunks: string[] = [];
+    let current = "";
+    let currentSize = 0;
+    const words = text.split(/\s+/);
+
+    for (const word of words) {
+      const wordSize = estimateTokens(word);
+      if (currentSize + wordSize > maxSize - limits.TOKEN_OVERLAP) {
+        if (current) {
+          localChunks.push(current.trim());
+          current = "";
+          currentSize = 0;
         }
+      }
+      current = current ? `${current} ${word}` : word;
+      currentSize += wordSize;
+    }
 
-        if (error.status === 429) {
-          const retryAfter = error.response?.headers?.["retry-after"];
-          let waitTime: number;
+    if (current) {
+      localChunks.push(current.trim());
+    }
 
-          if (retryAfter) {
-            waitTime = parseInt(retryAfter) * 1000;
-          } else {
-            waitTime =
-              initialDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+    return localChunks;
+  };
+
+  // Specialized function for splitting ABI content
+  function splitABIContent(
+    abiText: string,
+    limits: typeof TOKEN_LIMITS.ABI
+  ): string[] {
+    try {
+      const abi = JSON.parse(abiText);
+      const chunks: string[] = [];
+      let currentChunk: any[] = [];
+      let currentSize = 0;
+
+      for (const item of abi) {
+        const itemString = JSON.stringify(item);
+        const itemSize = estimateTokens(itemString);
+
+        // If single item is too large, split it
+        if (itemSize > limits.MAX_TOKENS) {
+          if (currentChunk.length > 0) {
+            chunks.push(JSON.stringify(currentChunk));
+            currentChunk = [];
+            currentSize = 0;
           }
-
-          console.log(
-            `[OpenAI] Rate limited. Attempt ${attempt}/${maxRetries}. ` +
-              `Waiting ${Math.round(waitTime / 1000)}s before retry. ` +
-              `Error details:`,
-            {
-              status: error.status,
-              message: error.message,
-              headers: error.response?.headers,
-              retryAfter,
-            }
-          );
-
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          // Split large item into smaller pieces
+          const subChunks = splitBySize(itemString, limits.MAX_TOKENS, limits);
+          chunks.push(...subChunks);
           continue;
         }
 
-        if (attempt === maxRetries) {
-          console.error(
-            "[OpenAI] Failed all retry attempts for embedding generation:",
-            {
-              error:
-                error instanceof Error
-                  ? {
-                      message: error.message,
-                      name: error.name,
-                    }
-                  : "Unknown error",
-              attempt,
-              maxRetries,
-            }
-          );
-          throw error;
+        // Check if adding this item would exceed the limit
+        if (currentSize + itemSize > limits.MAX_TOKENS - limits.TOKEN_OVERLAP) {
+          chunks.push(JSON.stringify(currentChunk));
+          currentChunk = [];
+          currentSize = 0;
         }
 
-        const delay =
-          initialDelay * Math.pow(1.5, attempt - 1) + Math.random() * 100;
-        console.log(
-          `[OpenAI] Embedding generation attempt ${attempt}/${maxRetries} failed. ` +
-            `Error: ${error.message}. ` +
-            `Retrying in ${Math.round(delay)}ms...`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        currentChunk.push(item);
+        currentSize += itemSize;
       }
+
+      // Add remaining items
+      if (currentChunk.length > 0) {
+        chunks.push(JSON.stringify(currentChunk));
+      }
+
+      return chunks;
+    } catch (error) {
+      console.error("Error splitting ABI:", error);
+      // Fallback to regular splitting if JSON parsing fails
+      return splitBySize(abiText, limits.MAX_TOKENS, limits);
+    }
+  }
+  // Handle regular text content
+  if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
+    const segments = text.split(/(?<=\.|\?|\!)\s+/);
+    let currentChunk = "";
+    let currentSize = 0;
+
+    for (const segment of segments) {
+      const segmentSize = estimateTokens(segment);
+
+      if (currentSize + segmentSize > actualMaxTokens - limits.TOKEN_OVERLAP) {
+        if (currentChunk) {
+          addChunk(currentChunk);
+          currentChunk = "";
+          currentSize = 0;
+        }
+      }
+
+      currentChunk = currentChunk ? `${currentChunk} ${segment}` : segment;
+      currentSize += segmentSize;
+    }
+
+    if (currentChunk) {
+      addChunk(currentChunk);
     }
   }
 
-  console.log(
-    "[OpenAI] Text too long for single embedding, splitting into chunks..."
-  );
-  const chunks = splitTextIntoChunks(text, MAX_TOKENS);
-
-  const embeddings: any[] = [];
-  for (let i = 0; i < chunks.length; i++) {
-    console.log(`[OpenAI] Processing chunk ${i + 1}/${chunks.length}`);
-    try {
-      const embeddingResponse = await openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: chunks[i] as string,
-        dimensions: 512,
-      });
-
-      embeddings.push(pgvector.toSql(embeddingResponse.data?.[0]?.embedding));
-    } catch (error: any) {
-      if (error.status === 429) {
-        const retryAfter = error.response?.headers?.["retry-after"];
-        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 60000;
-
-        console.log(
-          `[OpenAI] Rate limited while processing chunk ${i + 1}. ` +
-            `Waiting ${Math.round(waitTime / 1000)}s before retry...`
-        );
-
-        await new Promise((resolve) => setTimeout(resolve, waitTime));
-        i--;
-        continue;
-      }
-
-      console.error(
-        `[OpenAI] Failed to generate embedding for chunk ${i + 1}:`,
-        {
-          error:
-            error instanceof Error
-              ? {
-                  message: error.message,
-                  name: error.name,
-                }
-              : "Unknown error",
-          chunk: i + 1,
-          totalChunks: chunks.length,
-        }
-      );
-      throw error;
-    }
-  }
-
-  return embeddings;
+  return chunks;
 }
 
-export function splitTextIntoChunks(text: string, maxTokens: number): string[] {
-  if (!text) return [];
+// Cache for embeddings
+const embeddingCache = new Map<string, number[]>();
 
-  const chunks: string[] = [];
-  let currentChunk = "";
+export async function generateEmbeddingWithRetry(
+  text: string,
+  options?: RetryOptions
+): Promise<any> {
+  // Check cache first
+  const cached = embeddingCache.get(text);
+  if (cached) return cached;
 
-  const sentences = text.match(/[^.!?]+[.!?]+|\s*[^.!?]+$/g) || [text];
+  const estimatedTokens = estimateTokens(text);
 
-  for (let sentence of sentences) {
-    sentence = sentence.trim();
-    const sentenceTokens = estimateTokens(sentence);
+  // If text might be too long, split it before attempting embedding
+  if (estimatedTokens > MAX_TOKENS) {
+    console.log("Text too long for single embedding, splitting into chunks...");
+    const chunks = splitTextIntoChunks(text, MAX_TOKENS);
+    console.log(`Split into ${chunks.length} chunks`);
 
-    if (sentenceTokens > maxTokens) {
-      const words = sentence.split(/\s+/);
+    const embeddings: any[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i] as string;
+      console.log(
+        `Processing chunk ${i + 1}/${
+          chunks.length
+        } (estimated tokens: ${estimateTokens(chunk)})`
+      );
 
-      for (const word of words) {
-        const testChunk = currentChunk ? `${currentChunk} ${word}` : word;
-        const testChunkTokens = estimateTokens(testChunk);
-
-        if (testChunkTokens > maxTokens - TOKEN_OVERLAP) {
-          if (currentChunk) {
-            chunks.push(currentChunk.trim());
+      try {
+        // Double-check chunk size
+        if (estimateTokens(chunk) > MAX_TOKENS) {
+          console.log(`Chunk ${i + 1} still too large, further splitting...`);
+          const subChunks = splitTextIntoChunks(chunk, MAX_TOKENS / 2);
+          for (let j = 0; j < subChunks.length; j++) {
+            const subChunk = subChunks[j];
+            const embedding = await withRetry(async () => {
+              const response = await openai.embeddings.create({
+                model: "text-embedding-3-small",
+                input: subChunk as string,
+                dimensions: 512,
+              });
+              return pgvector.toSql(response.data?.[0]?.embedding);
+            }, options);
+            embeddings.push(embedding);
           }
-          currentChunk = word;
         } else {
-          currentChunk = testChunk;
+          const embedding = await withRetry(async () => {
+            const response = await openai.embeddings.create({
+              model: "text-embedding-3-small",
+              input: chunk,
+              dimensions: 512,
+            });
+            return pgvector.toSql(response.data?.[0]?.embedding);
+          }, options);
+          embeddings.push(embedding);
         }
-      }
-    } else {
-      const testChunk = currentChunk ? `${currentChunk} ${sentence}` : sentence;
-      const testChunkTokens = estimateTokens(testChunk);
-
-      if (testChunkTokens > maxTokens - TOKEN_OVERLAP) {
-        if (currentChunk) {
-          chunks.push(currentChunk.trim());
-        }
-        currentChunk = sentence;
-      } else {
-        currentChunk = testChunk;
+      } catch (error) {
+        console.error(`Error processing chunk ${i + 1}:`, error);
       }
     }
+    return embeddings;
+  } else {
+    const embedding = await withRetry(async () => {
+      const response = await openai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: text,
+        dimensions: 512,
+      });
+      return pgvector.toSql(response.data?.[0]?.embedding);
+    }, options);
+
+    // Cache the result
+    embeddingCache.set(text, embedding);
+    return embedding;
   }
-
-  if (currentChunk) {
-    chunks.push(currentChunk.trim());
-  }
-
-  return chunks.map((chunk, index) => {
-    if (index === 0) return chunk;
-
-    const prevChunk = chunks[index - 1] ?? "";
-    const overlapText = prevChunk
-      .split(/\s+/)
-      .slice(-TOKEN_OVERLAP / 20)
-      .join(" ");
-    return `${overlapText} ${chunk}`;
-  });
 }
 
 export default openai;

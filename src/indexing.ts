@@ -325,6 +325,7 @@ CONTRACT_NAMES.forEach((contractName) => {
           id: event.args.agentInstance,
           agentId: agentId,
           serviceId: serviceId,
+          chain,
           blockNumber: Number(event.block.number),
           timestamp: Number(event.block.timestamp),
         })

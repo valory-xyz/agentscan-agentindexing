@@ -10,10 +10,15 @@ import {
   TokenTransferData,
 } from "../src/types";
 import { pool } from "./postgres";
+import { processPackageDownload } from "./ipfs";
 
 const TTL = 7 * 24 * 60 * 60; // 1 week
 
 const INITIAL_RETRY_DELAY = 5000;
+
+const INITIAL_TIMEOUT = 30000; // 30 seconds
+const MAX_TIMEOUT = 60000; // 60 seconds
+const TIMEOUT_MULTIPLIER = 1.5;
 
 const MAX_RETRIES = 100;
 
@@ -565,19 +570,27 @@ export const fetchAndTransformMetadata = async (
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const { data } = await axiosInstance.get<MetadataJson>(metadataURI);
+      const { data } = await axiosInstance.get<any>(metadataURI);
 
-      return {
+      const metadataJson = {
         name: data.name || null,
         description: data.description || null,
-        image: transformIpfsUrl(data.image),
-        codeUri: transformIpfsUrl(data.codeUri || undefined),
+        image: data.image || null,
+        codeUri: data.code_uri || data.codeUri || null,
         packageHash: extractPackageHash(
-          data.codeUri || undefined,
+          data.codeUri || data.code_uri || undefined,
           data.packageHash
         ),
         metadataURI,
       };
+      console.log(
+        `[Metadata] Found metadata for ${configInfo.id}: ${metadataJson.name}`
+      );
+
+      if (metadataJson.packageHash) {
+        void processPackageDownload(metadataJson.packageHash, configInfo.id);
+      }
+      return metadataJson;
     } catch (error) {
       if (attempt === maxRetries - 1) {
         console.error(`Failed to fetch metadata after ${maxRetries} attempts`);
@@ -610,45 +623,15 @@ function extractPackageHash(
   return existingHash?.trim().replace(/\/$/, "") || null;
 }
 
-function transformIpfsUrl(url: string | null | undefined): string | null {
+export function transformIpfsUrl(
+  url: string | null | undefined
+): string | null {
   if (!url) return null;
   const gatewayUrl = "https://gateway.autonolas.tech/ipfs/";
   return url.startsWith("ipfs://") ? url.replace("ipfs://", gatewayUrl) : url;
 }
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-export async function isSafeTransaction(
-  address: string,
-  chainId: number,
-  context: any
-): Promise<boolean> {
-  try {
-    const checkQuery = `
-      SELECT abi_text FROM contract_abis 
-      WHERE address = $1 AND chain_id = $2
-    `;
-    const result = await pool.query(checkQuery, [
-      address.toLowerCase(),
-      chainId,
-    ]);
-
-    if (!result.rows.length) return false;
-
-    const abi = JSON.parse(result.rows[0].abi_text);
-
-    return abi.some(
-      (item: any) =>
-        item.type === "function" &&
-        item.name === "execTransaction" &&
-        item.inputs?.length === 10 &&
-        item.inputs.some((input: any) => input.name === "signatures")
-    );
-  } catch (error) {
-    console.error("Error checking Safe status:", error);
-    return false;
-  }
-}
 
 export function convertBigIntsToStrings(obj: any): any {
   return replaceBigInts(obj, (v) => String(v));
@@ -759,10 +742,6 @@ function getRetryDelay(error: any, attempt: number = 0): number {
   console.log(`[ABI] Default delay: ${defaultDelay}ms`);
   return defaultDelay;
 }
-
-const INITIAL_TIMEOUT = 30000; // 30 seconds
-const MAX_TIMEOUT = 60000; // 60 seconds
-const TIMEOUT_MULTIPLIER = 1.5;
 
 function isTimeoutError(error: any): boolean {
   return (

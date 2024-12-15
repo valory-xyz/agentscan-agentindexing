@@ -65,7 +65,7 @@ REGISTER_NAMES.forEach((contractName) => {
       console.log(`Handling ${contractName}:transfer:from event`);
       if (!event.transaction.to || !event.transaction.from) return;
 
-      const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
+      const transferId = `${event.transaction.from}-${event.transaction.to}-${event.block.number}`;
       const transferData = convertBigIntsToStrings({
         id: transferId,
         hash: event.transaction.hash,
