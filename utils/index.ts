@@ -342,14 +342,20 @@ export async function checkAndStoreAbi(
         const parsedResponse = JSON.parse(cachedAbidataResponse);
         if (parsedResponse.ok && parsedResponse.abi) {
           const abi_text = JSON.stringify(parsedResponse.abi);
-
-          return await processAbiResponse(
-            abi_text,
-            formattedAddress,
-            chainId,
-            context,
-            blockNumber
-          );
+          try {
+            return await processAbiResponse(
+              abi_text,
+              formattedAddress,
+              chainId,
+              context,
+              blockNumber
+            );
+          } catch (error) {
+            console.error(
+              `[ABI] Error processing cached ABI for ${formattedAddress}:`,
+              error
+            );
+          }
         }
       }
     } catch (redisError) {
