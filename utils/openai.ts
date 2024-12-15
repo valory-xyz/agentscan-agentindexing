@@ -41,10 +41,47 @@ export async function generateEmbeddingWithRetry(
           break;
         }
 
+        if (error.status === 429) {
+          const retryAfter = error.response?.headers?.["retry-after"];
+          let waitTime: number;
+
+          if (retryAfter) {
+            waitTime = parseInt(retryAfter) * 1000;
+          } else {
+            waitTime =
+              initialDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+          }
+
+          console.log(
+            `[OpenAI] Rate limited. Attempt ${attempt}/${maxRetries}. ` +
+              `Waiting ${Math.round(waitTime / 1000)}s before retry. ` +
+              `Error details:`,
+            {
+              status: error.status,
+              message: error.message,
+              headers: error.response?.headers,
+              retryAfter,
+            }
+          );
+
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+          continue;
+        }
+
         if (attempt === maxRetries) {
           console.error(
-            "Failed all retry attempts for embedding generation:",
-            error
+            "[OpenAI] Failed all retry attempts for embedding generation:",
+            {
+              error:
+                error instanceof Error
+                  ? {
+                      message: error.message,
+                      name: error.name,
+                    }
+                  : "Unknown error",
+              attempt,
+              maxRetries,
+            }
           );
           throw error;
         }
@@ -52,19 +89,23 @@ export async function generateEmbeddingWithRetry(
         const delay =
           initialDelay * Math.pow(1.5, attempt - 1) + Math.random() * 100;
         console.log(
-          `Embedding generation attempt ${attempt} failed. Retrying in ${delay}ms...`
+          `[OpenAI] Embedding generation attempt ${attempt}/${maxRetries} failed. ` +
+            `Error: ${error.message}. ` +
+            `Retrying in ${Math.round(delay)}ms...`
         );
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
 
-  console.log("Text too long for single embedding, splitting into chunks...");
+  console.log(
+    "[OpenAI] Text too long for single embedding, splitting into chunks..."
+  );
   const chunks = splitTextIntoChunks(text, MAX_TOKENS);
 
   const embeddings: any[] = [];
   for (let i = 0; i < chunks.length; i++) {
-    console.log(`Processing chunk ${i + 1}/${chunks.length}`);
+    console.log(`[OpenAI] Processing chunk ${i + 1}/${chunks.length}`);
     try {
       const embeddingResponse = await openai.embeddings.create({
         model: "text-embedding-3-small",
@@ -73,8 +114,35 @@ export async function generateEmbeddingWithRetry(
       });
 
       embeddings.push(pgvector.toSql(embeddingResponse.data?.[0]?.embedding));
-    } catch (error) {
-      console.error(`Failed to generate embedding for chunk ${i + 1}:`, error);
+    } catch (error: any) {
+      if (error.status === 429) {
+        const retryAfter = error.response?.headers?.["retry-after"];
+        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : 60000;
+
+        console.log(
+          `[OpenAI] Rate limited while processing chunk ${i + 1}. ` +
+            `Waiting ${Math.round(waitTime / 1000)}s before retry...`
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
+        i--;
+        continue;
+      }
+
+      console.error(
+        `[OpenAI] Failed to generate embedding for chunk ${i + 1}:`,
+        {
+          error:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  name: error.name,
+                }
+              : "Unknown error",
+          chunk: i + 1,
+          totalChunks: chunks.length,
+        }
+      );
       throw error;
     }
   }

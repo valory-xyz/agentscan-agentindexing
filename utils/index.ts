@@ -338,9 +338,6 @@ export async function checkAndStoreAbi(
     try {
       const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
       if (cachedAbidataResponse) {
-        console.log(
-          `[ABI] Found cached abidata response for ${formattedAddress}`
-        );
         const parsedResponse = JSON.parse(cachedAbidataResponse);
         if (parsedResponse.ok && parsedResponse.abi) {
           const abi_text = JSON.stringify(parsedResponse.abi);
@@ -703,9 +700,6 @@ export function convertBigIntsToStrings(obj: any): any {
 export function isProxyContract(abi: string): boolean {
   try {
     const abiObj = JSON.parse(abi);
-
-    // Log the ABI for debugging
-    console.log("Checking ABI for proxy:", JSON.stringify(abiObj, null, 2));
 
     // Specific check for Gnosis Safe Proxy pattern
     const isGnosisSafeProxy =
