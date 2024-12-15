@@ -653,42 +653,57 @@ async function storeAbiInDatabase({
   embedding: string;
   implementationAddress: string | null;
 }) {
-  const insertQuery = `
-    INSERT INTO context_embeddings (
+  try {
+    const insertQuery = `
+      INSERT INTO context_embeddings (
+        id,
+        company_id,
+        type,
+        location,
+        content,
+        name,
+        embedding,
+        is_chunk,
+        original_location
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      ON CONFLICT (id, type, location) 
+      DO UPDATE SET 
+        content = EXCLUDED.content,
+        embedding = EXCLUDED.embedding,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `;
+
+    const result = await pool.query(insertQuery, [
       id,
-      company_id,
-      type,
+      "olas",
+      "abi",
       location,
       content,
-      name,
+      id.split("-")[0],
       embedding,
-      is_chunk,
-      original_location
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    ON CONFLICT (id) 
-    DO UPDATE SET 
-      content = $5,
-      embedding = $7,
-      updated_at = CURRENT_TIMESTAMP
-    RETURNING *
-  `;
+      false,
+      implementationAddress
+        ? getChainExplorerUrl(
+            getChainId(id.split("-")[1] || "mainnet"),
+            implementationAddress
+          )
+        : null,
+    ]);
 
-  await pool.query(insertQuery, [
-    id,
-    "olas",
-    "abi",
-    location,
-    content,
-    id.split("-")[0],
-    embedding,
-    false,
-    implementationAddress
-      ? getChainExplorerUrl(
-          getChainId(id.split("-")[1] || "mainnet"),
-          implementationAddress
-        )
-      : null,
-  ]);
+    return result.rows[0];
+  } catch (error) {
+    console.error(`[ABI] Database error storing ABI for ${id}:`, {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      details: {
+        id,
+        type: "abi",
+        location,
+      },
+    });
+    throw error;
+  }
 }
 
 export const fetchAndTransformMetadata = async (

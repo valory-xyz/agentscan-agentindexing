@@ -649,6 +649,15 @@ async function parseDAGResponse(response: any): Promise<DAGResponse | null> {
   }
 }
 
+function sanitizeIpfsUrl(gateway: string, cid: string): string {
+  // Remove any trailing slashes from gateway
+  const cleanGateway = gateway.replace(/\/+$/, "");
+  // Remove any leading/trailing slashes and semicolons from CID
+  const cleanCid = cid.replace(/^\/+|\/+$|;+$/g, "");
+
+  return `${cleanGateway}/ipfs/${cleanCid}`;
+}
+
 // Update the traverseDAG function to use the new gateway management
 async function traverseDAG(
   cid: string,
@@ -677,8 +686,9 @@ async function traverseDAG(
     );
 
     try {
+      const url = sanitizeIpfsUrl(gateway, cleanCid);
       const response = await withFileProcessingRetry(async () => {
-        const result = await axiosInstance.get(`${gateway}/ipfs/${cleanCid}`, {
+        const result = await axiosInstance.get(url, {
           headers: {
             Accept: "application/vnd.ipld.dag-json, application/json",
             "X-Content-Type-Options": "nosniff",
@@ -686,6 +696,9 @@ async function traverseDAG(
           params: {
             format: "dag-json",
           },
+          validateStatus: (status) => status >= 200 && status < 500,
+          maxRedirects: 15,
+          timeout: 30000,
         });
 
         if (!isValidGatewayResponse(result)) {
