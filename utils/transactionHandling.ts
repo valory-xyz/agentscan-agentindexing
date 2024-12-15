@@ -11,17 +11,7 @@ import {
 import { decodeEventLog } from "viem";
 
 import { Context } from "ponder:registry";
-
-const EVENT_SIGNATURES = {
-  ERC20_TRANSFER:
-    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
-  FPMM_BUY:
-    "0x4f62630f51608fc8a7603a9391a5101e58bd7c276139366fc107dc3b67c3dcf8",
-  ERC721_TRANSFER:
-    "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
-  SAFE_EXECUTION:
-    "0x442e715f626346e8c54381002da614f62bee8d27386535b2521ec8540898556e",
-} as const;
+import { EVENT_SIGNATURES } from "./constants";
 
 async function decodeLogWithDetails(
   log: any,
@@ -153,7 +143,6 @@ export async function processTransaction(
 
     const decodedLogs = [] as any[];
 
-    // Process each log
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i];
 
@@ -166,7 +155,6 @@ export async function processTransaction(
 
       let decodedLog = null;
 
-      // Check known signatures first
       if (eventSignature === EVENT_SIGNATURES.ERC20_TRANSFER) {
         decodedLog = {
           contractAddress: log.address,
@@ -184,8 +172,7 @@ export async function processTransaction(
           rawTopics: log.topics,
         };
       } else if (eventSignature === EVENT_SIGNATURES.FPMM_BUY) {
-        const data = log?.data?.slice(2) || ""; // Remove '0x' prefix
-        // Split data into 32-byte chunks
+        const data = log?.data?.slice(2) || "";
         const investmentAmount = data.slice(0, 64);
         const feeAmount = data.slice(64, 128);
         const outcomeTokensBought = data.slice(128, 192);
@@ -224,7 +211,6 @@ export async function processTransaction(
           decoded: decodedLog,
         });
 
-        // Process transfers
         if (decodedLog.decoded?.name === "Transfer") {
           const args = decodedLog.decoded.args as {
             from: string;

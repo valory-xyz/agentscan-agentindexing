@@ -393,3 +393,10 @@ export const LogRelations = relations(Log, ({ one }) => ({
     references: [Transaction.hash],
   }),
 }));
+
+export const TransferRelations = relations(Transfer, ({ one }) => ({
+  transaction: one(Transaction, {
+    fields: [Transfer.hash],
+    references: [Transaction.hash],
+  }),
+}));
