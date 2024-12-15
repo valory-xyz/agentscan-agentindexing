@@ -92,9 +92,9 @@ export const AgentInstance = onchainTable(
   (table) => ({
     idx: index().on(table.id),
     agentIdx: index().on(table.agentId),
-    chainIdx: index().on(table.chain),
     timestampIdx: index().on(table.timestamp),
     blockNumberIdx: index().on(table.blockNumber),
+    chainIdx: index().on(table.chain),
   })
 );
 
@@ -253,14 +253,14 @@ export const AgentToTransaction = onchainTable(
   "agent_to_transaction",
   (t) => ({
     id: t.text().primaryKey(),
-    agentId: t.text().notNull(),
+    agentInstanceId: t.text().notNull(),
     transactionHash: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
     chain: t.text().notNull(),
   }),
   (table) => ({
-    agentIdx: index().on(table.agentId),
+    agentInstanceIdx: index().on(table.agentInstanceId),
     txHashIdx: index().on(table.transactionHash),
     timestampIdx: index().on(table.timestamp),
     chainIdx: index().on(table.chain),
@@ -272,14 +272,14 @@ export const AgentFromTransaction = onchainTable(
   "agent_from_transaction",
   (t) => ({
     id: t.text().primaryKey(),
-    agentId: t.text().notNull(),
+    agentInstanceId: t.text().notNull(),
     transactionHash: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
     chain: t.text().notNull(),
   }),
   (table) => ({
-    agentIdx: index().on(table.agentId),
+    agentInstanceIdx: index().on(table.agentInstanceId),
     txHashIdx: index().on(table.transactionHash),
     timestampIdx: index().on(table.timestamp),
     chainIdx: index().on(table.chain),
@@ -311,16 +311,19 @@ export const ServiceAgentRelations = relations(ServiceAgent, ({ one }) => ({
 export const AgentRelations = relations(Agent, ({ many }) => ({
   instances: many(AgentInstance),
   componentAgents: many(ComponentAgent),
-  toTransactions: many(AgentToTransaction),
-  fromTransactions: many(AgentFromTransaction),
 }));
 
-export const AgentInstanceRelations = relations(AgentInstance, ({ one }) => ({
-  agent: one(Agent, {
-    fields: [AgentInstance.agentId],
-    references: [Agent.id],
-  }),
-}));
+export const AgentInstanceRelations = relations(
+  AgentInstance,
+  ({ one, many }) => ({
+    agent: one(Agent, {
+      fields: [AgentInstance.agentId],
+      references: [Agent.id],
+    }),
+    toTransactions: many(AgentToTransaction),
+    fromTransactions: many(AgentFromTransaction),
+  })
+);
 
 // Component Relations
 export const ComponentRelations = relations(Component, ({ many }) => ({
@@ -377,9 +380,9 @@ export const AgentTransactionRelations = relations(
 export const AgentToTransactionRelations = relations(
   AgentToTransaction,
   ({ one }) => ({
-    agent: one(Agent, {
-      fields: [AgentToTransaction.agentId],
-      references: [Agent.id],
+    agentInstance: one(AgentInstance, {
+      fields: [AgentToTransaction.agentInstanceId],
+      references: [AgentInstance.id],
     }),
     transaction: one(Transaction, {
       fields: [AgentToTransaction.transactionHash],
@@ -391,9 +394,9 @@ export const AgentToTransactionRelations = relations(
 export const AgentFromTransactionRelations = relations(
   AgentFromTransaction,
   ({ one }) => ({
-    agent: one(Agent, {
-      fields: [AgentFromTransaction.agentId],
-      references: [Agent.id],
+    agentInstance: one(AgentInstance, {
+      fields: [AgentFromTransaction.agentInstanceId],
+      references: [AgentInstance.id],
     }),
     transaction: one(Transaction, {
       fields: [AgentFromTransaction.transactionHash],

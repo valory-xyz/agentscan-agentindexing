@@ -322,7 +322,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       await context.db
         .insert(AgentInstance)
         .values({
-          id: event.args.agentInstance,
+          id: event.args.agentInstance.toLowerCase(),
           agentId: agentId,
           serviceId: serviceId,
           chain,
@@ -357,9 +357,9 @@ CONTRACT_NAMES.forEach((contractName) => {
       await context.db
         .insert(ServiceAgent)
         .values({
-          id: `${serviceId}-${event.args.agentInstance}`,
+          id: `${serviceId}-${event.args.agentInstance.toLowerCase()}`,
           serviceId,
-          agentInstanceId: event.args.agentInstance,
+          agentInstanceId: event.args.agentInstance.toLowerCase(),
         })
         .onConflictDoNothing();
     } catch (e) {

@@ -298,7 +298,7 @@ export async function processTransaction(
       try {
         await context.db.insert(AgentFromTransaction).values({
           id: `${fromAddress}-${hash}-from`,
-          agentId: fromAddress.toLowerCase(),
+          agentInstanceId: fromAddress.toLowerCase(),
           transactionHash: hash,
           blockNumber: Number(blockNumber),
           timestamp: Number(event.block.timestamp),
@@ -314,7 +314,7 @@ export async function processTransaction(
       try {
         await context.db.insert(AgentToTransaction).values({
           id: `${toAddress}-${hash}-to`,
-          agentId: toAddress.toLowerCase(),
+          agentInstanceId: toAddress.toLowerCase(),
           transactionHash: hash,
           blockNumber: Number(blockNumber),
           timestamp: Number(event.block.timestamp),
