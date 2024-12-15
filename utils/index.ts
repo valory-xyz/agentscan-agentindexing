@@ -891,6 +891,10 @@ async function fetchWithRetry(
       lastError = error;
 
       if (axios.isAxiosError(error)) {
+        if (error.response?.status === 400) {
+          throw error;
+        }
+
         const status = error.response?.status;
         const headers = error.response?.headers;
 
@@ -909,6 +913,10 @@ async function fetchWithRetry(
           code: error.code,
           url: error.config?.url,
         });
+
+        if (!isTimeout && !isRateLimit) {
+          throw error;
+        }
 
         const waitTime = isRateLimit
           ? getRetryDelay(error, i)
