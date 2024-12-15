@@ -325,6 +325,24 @@ export async function checkAndStoreAbi(
       return null;
     }
 
+    const checkQuery = `
+      SELECT abi_text 
+      FROM contract_abis 
+      WHERE address = $1 AND chain_id = $2
+    `;
+
+    const existingAbi = await pool.query(checkQuery, [
+      formattedAddress,
+      chainId,
+    ]);
+
+    if (existingAbi.rows.length > 0) {
+      console.log(
+        `[ABI] Found existing ABI in database for ${formattedAddress}`
+      );
+      return existingAbi.rows[0].abi_text;
+    }
+
     const network =
       chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : null;
     if (!network) {
