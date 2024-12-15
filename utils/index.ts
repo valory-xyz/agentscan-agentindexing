@@ -345,9 +345,6 @@ export async function checkAndStoreAbi(
         return null;
       }
 
-      console.log(
-        `[ABI] Found existing ABI in database for ${formattedAddress}`
-      );
       return existingAbi.rows[0].abi_text;
     }
 
@@ -364,7 +361,6 @@ export async function checkAndStoreAbi(
     try {
       const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
       if (cachedAbidataResponse) {
-        console.log(`[ABI] Found cached ABI in Redis for ${formattedAddress}`);
         const parsedResponse = JSON.parse(cachedAbidataResponse);
         if (parsedResponse.ok && parsedResponse.abi) {
           const abi_text = JSON.stringify(parsedResponse.abi);
