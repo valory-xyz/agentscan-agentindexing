@@ -3,7 +3,12 @@ import axios from "axios";
 import { generateEmbeddingWithRetry } from "./openai";
 import { replaceBigInts } from "ponder";
 import { createClient } from "redis";
-import { ImplementationResult, TokenTransferData } from "../src/types";
+import {
+  ConfigInfo,
+  ImplementationResult,
+  MetadataJson,
+  TokenTransferData,
+} from "../src/types";
 import { pool } from "./postgres";
 
 const TTL = 7 * 24 * 60 * 60; // 1 week
@@ -134,20 +139,6 @@ export const fetchAndEmbedMetadata = async (
 
   return await fetchAndTransformMetadata(configHash, maxRetries, configInfo);
 };
-
-interface ConfigInfo {
-  type: "component" | "service" | "agent";
-  id: string;
-}
-
-interface MetadataJson {
-  name?: string | null;
-  description?: string | null;
-  image?: string | null;
-  codeUri?: string | null;
-  packageHash?: string | null;
-  metadataURI?: string;
-}
 
 export async function getImplementationAddress(
   contractAddress: string,

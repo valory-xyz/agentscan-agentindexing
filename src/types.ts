@@ -15,3 +15,17 @@ export interface ImplementationResult {
   address: string;
   abi: string | null;
 }
+
+export interface ConfigInfo {
+  type: "component" | "service" | "agent";
+  id: string;
+}
+
+export interface MetadataJson {
+  name?: string | null;
+  description?: string | null;
+  image?: string | null;
+  codeUri?: string | null;
+  packageHash?: string | null;
+  metadataURI?: string;
+}
