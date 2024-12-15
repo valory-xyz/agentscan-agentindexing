@@ -335,6 +335,12 @@ export async function setAbiInCache(
   abiText: string | any
 ): Promise<void> {
   try {
+    console.log(
+      "Storing ABI:",
+      typeof abiText,
+      abiText.substring ? abiText.substring(0, 200) : abiText
+    );
+
     // Special case for invalid ABIs
     if (abiText === "INVALID_ABI") {
       await redisClient.set(getAbiCacheKey(addressAndChain), "INVALID_ABI", {
@@ -365,7 +371,7 @@ export async function setAbiInCache(
       EX: ABI_CACHE_TTL,
     });
 
-    console.log(`[ABI] Cached ABI for ${addressAndChain}`);
+    console.log(`[ABI] Cached ABI for ${addressAndChain}`, stringifiedAbi);
   } catch (error) {
     console.error(`[ABI] Redis cache set error for ${addressAndChain}:`, {
       error: error instanceof Error ? error.message : "Unknown error",
@@ -425,7 +431,7 @@ export async function checkAndStoreAbi(
       if (typeof abiText === "string") {
         try {
           const parsedAbi = JSON.parse(abiText);
-          await setAbiInCache(addressAndChain, abiText);
+          await setAbiInCache(addressAndChain, parsedAbi);
           return parsedAbi;
         } catch (e) {
           console.error(
@@ -622,7 +628,7 @@ async function processAbiResponse(
     }
     return abi;
   }
-  console.log(`[ABI] abi detected for ${formattedAddress}`, abi);
+  console.log(`[ABI] No proxy detected for ${formattedAddress}`);
   const embedding = await generateEmbeddingWithRetry(abi);
   const chainName = getChainNameFromId(chainId);
   const location = getChainExplorerUrl(chainId, formattedAddress);
