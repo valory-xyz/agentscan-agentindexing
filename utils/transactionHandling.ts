@@ -245,7 +245,7 @@ export async function processTransaction(
           try {
             await context.db
               .insert(Transfer)
-              .values({ ...transfer })
+              .values({ ...transfer, chain: context.network?.name })
               .onConflictDoUpdate({
                 ...transfer,
               });
@@ -270,6 +270,7 @@ export async function processTransaction(
           log.decoded?.name === "MultisigTransaction"
       ),
       logs: JSON.stringify(convertBigIntsToStrings(decodedLogs)),
+      chain: context.network?.name,
     });
 
     console.log(
@@ -309,6 +310,7 @@ export async function processTransaction(
           transactionHash: hash,
           blockNumber: Number(blockNumber),
           timestamp: Number(event.block.timestamp),
+          chain: context.network?.name,
         });
       } catch (error) {
         console.error(
@@ -324,6 +326,7 @@ export async function processTransaction(
           transactionHash: hash,
           blockNumber: Number(blockNumber),
           timestamp: Number(event.block.timestamp),
+          chain: context.network?.name,
         });
       } catch (error) {
         console.error(`Error inserting AgentToTransaction for ${hash}:`, error);
@@ -334,6 +337,7 @@ export async function processTransaction(
       try {
         await context.db.insert(Log).values({
           id: `${hash}-${decodedLog.logIndex}`,
+          chain: context.network?.name,
           transactionHash: hash,
           logIndex: Number(decodedLog.logIndex),
           address: decodedLog?.address?.toString() || "",

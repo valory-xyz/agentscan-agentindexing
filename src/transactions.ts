@@ -35,7 +35,7 @@ REGISTER_NAMES.forEach((contractName) => {
     }
   });
 
-  ponder.on(`${contractName}:transfer:to`, async ({ event, context }) => {
+  ponder.on(`${contractName}:transfer:to`, async ({ event, context }: any) => {
     console.log(`Handling ${contractName}:transfer:to event`);
     if (!event.transaction.to) return;
     const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
@@ -48,6 +48,7 @@ REGISTER_NAMES.forEach((contractName) => {
       from: event.transfer.from.toString(),
       to: event.transfer.to.toString(),
       value: event.transaction.value,
+      chain: context.network?.name,
     });
     await context.db
       .insert(Transfer)
@@ -58,28 +59,32 @@ REGISTER_NAMES.forEach((contractName) => {
     console.log(`Transfer transaction processed: ${event.transaction.hash}`);
   });
 
-  ponder.on(`${contractName}:transfer:from`, async ({ event, context }) => {
-    console.log(`Handling ${contractName}:transfer:from event`);
-    if (!event.transaction.to || !event.transaction.from) return;
+  ponder.on(
+    `${contractName}:transfer:from`,
+    async ({ event, context }: any) => {
+      console.log(`Handling ${contractName}:transfer:from event`);
+      if (!event.transaction.to || !event.transaction.from) return;
 
-    const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
-    const transferData = convertBigIntsToStrings({
-      id: transferId,
-      hash: event.transaction.hash,
-      blockNumber: Number(event.block.number),
-      timestamp: Number(event.block.timestamp),
-      from: event.transaction.from.toString(),
-      to: event.transaction.to.toString(),
-      value: event.transaction.value,
-    });
-
-    await context.db
-      .insert(Transfer)
-      .values(transferData)
-      .onConflictDoUpdate({
-        ...transferData,
+      const transferId = `${event.transfer.from}-${event.transfer.to}-${event.block.number}`;
+      const transferData = convertBigIntsToStrings({
+        id: transferId,
+        hash: event.transaction.hash,
+        blockNumber: Number(event.block.number),
+        timestamp: Number(event.block.timestamp),
+        from: event.transaction.from.toString(),
+        to: event.transaction.to.toString(),
+        value: event.transaction.value,
+        chain: context.network?.name,
       });
 
-    console.log(`Transfer processed: ${transferId}`);
-  });
+      await context.db
+        .insert(Transfer)
+        .values(transferData)
+        .onConflictDoUpdate({
+          ...transferData,
+        });
+
+      console.log(`Transfer processed: ${transferId}`);
+    }
+  );
 });

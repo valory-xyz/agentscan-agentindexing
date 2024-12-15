@@ -216,6 +216,7 @@ export const Transaction = onchainTable(
   "transaction",
   (t) => ({
     hash: t.text().primaryKey(),
+    chain: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
     from: t.text().notNull(),
@@ -227,6 +228,7 @@ export const Transaction = onchainTable(
   }),
   (table) => ({
     hashIdx: index().on(table.hash),
+    chainIdx: index().on(table.chain),
     fromIdx: index().on(table.from),
     toIdx: index().on(table.to),
     timestampIdx: index().on(table.timestamp),
@@ -234,42 +236,11 @@ export const Transaction = onchainTable(
   })
 );
 
-export const MultisendTransaction = onchainTable(
-  "multisend_transaction",
-  (t) => ({
-    id: t.text().primaryKey(),
-    hash: t.text().notNull(),
-    from: t.text().notNull(),
-    to: t.text().notNull(),
-    value: t.text().notNull(),
-    data: t.text().notNull(),
-    operationType: t.integer().notNull(),
-    decodedFunction: t.text(),
-    implementationAddress: t.text(),
-    index: t.integer().notNull(),
-  }),
-  (table) => ({
-    hashIdx: index().on(table.hash),
-    fromIdx: index().on(table.from),
-    toIdx: index().on(table.to),
-    indexIdx: index().on(table.index),
-  })
-);
-
-export const MultisendTransactionRelations = relations(
-  MultisendTransaction,
-  ({ one }) => ({
-    transaction: one(Transaction, {
-      fields: [MultisendTransaction.hash],
-      references: [Transaction.hash],
-    }),
-  })
-);
-
 export const Transfer = onchainTable(
   "transfer",
   (t) => ({
     id: t.text().primaryKey(),
+    chain: t.text().notNull(),
     hash: t.text().notNull(),
     from: t.text().notNull(),
     to: t.text().notNull(),
@@ -279,19 +250,13 @@ export const Transfer = onchainTable(
   }),
   (table) => ({
     hashIdx: index().on(table.hash),
+    chainIdx: index().on(table.chain),
     fromIdx: index().on(table.from),
     toIdx: index().on(table.to),
     timestampIdx: index().on(table.timestamp),
+    blockNumberIdx: index().on(table.blockNumber),
   })
 );
-
-// Relations for Transfer
-export const TransferRelations = relations(Transfer, ({ one }) => ({
-  transaction: one(Transaction, {
-    fields: [Transfer.hash],
-    references: [Transaction.hash],
-  }),
-}));
 
 export const AgentTransaction = onchainTable(
   "agent_transaction",
@@ -301,11 +266,14 @@ export const AgentTransaction = onchainTable(
     transactionHash: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
+    chain: t.text().notNull(),
   }),
   (table) => ({
     agentIdx: index().on(table.agentId),
     txHashIdx: index().on(table.transactionHash),
     timestampIdx: index().on(table.timestamp),
+    chainIdx: index().on(table.chain),
+    blockNumberIdx: index().on(table.blockNumber),
   })
 );
 
@@ -331,11 +299,14 @@ export const AgentToTransaction = onchainTable(
     transactionHash: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
+    chain: t.text().notNull(),
   }),
   (table) => ({
     agentIdx: index().on(table.agentId),
     txHashIdx: index().on(table.transactionHash),
     timestampIdx: index().on(table.timestamp),
+    chainIdx: index().on(table.chain),
+    blockNumberIdx: index().on(table.blockNumber),
   })
 );
 
@@ -347,11 +318,14 @@ export const AgentFromTransaction = onchainTable(
     transactionHash: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
+    chain: t.text().notNull(),
   }),
   (table) => ({
     agentIdx: index().on(table.agentId),
     txHashIdx: index().on(table.transactionHash),
     timestampIdx: index().on(table.timestamp),
+    chainIdx: index().on(table.chain),
+    blockNumberIdx: index().on(table.blockNumber),
   })
 );
 
@@ -387,6 +361,7 @@ export const Log = onchainTable(
   "log",
   (t) => ({
     id: t.text().primaryKey(),
+    chain: t.text().notNull(),
     transactionHash: t.text().notNull(),
     logIndex: t.integer().notNull(),
     address: t.text().notNull(),
@@ -399,6 +374,7 @@ export const Log = onchainTable(
   }),
   (table) => ({
     txHashIdx: index().on(table.transactionHash),
+    chainIdx: index().on(table.chain),
     addressIdx: index().on(table.address),
     blockNumberIdx: index().on(table.blockNumber),
     timestampIdx: index().on(table.timestamp),
@@ -408,7 +384,6 @@ export const Log = onchainTable(
 
 export const TransactionRelations = relations(Transaction, ({ many }) => ({
   logs: many(Log),
-  multisendTransactions: many(MultisendTransaction),
   transfers: many(Transfer),
 }));
 
