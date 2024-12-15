@@ -769,36 +769,59 @@ export function isProxyContract(abi: string): boolean {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function getRetryDelay(error: any): number {
+function getRetryDelay(error: any, attempt: number = 0): number {
+  const BASE_DELAY = 12000;
+  const MAX_DELAY = 60000;
+
   if (axios.isAxiosError(error) && error.response?.headers) {
     const headers = error.response.headers;
 
-    // If Retry-After is present, always use it
     if (headers["retry-after"]) {
       const retryAfter = headers["retry-after"];
-      // If Retry-After is a date
+
       if (isNaN(retryAfter as any)) {
         const retryDate = new Date(retryAfter);
         if (!isNaN(retryDate.getTime())) {
-          console.log(`[ABI] Retry-After: ${retryAfter}`);
-          return Math.max(0, retryDate.getTime() - Date.now());
+          const delay = Math.max(0, retryDate.getTime() - Date.now());
+          console.log(
+            `[ABI] Retry-After (date): ${new Date(
+              retryDate
+            ).toISOString()}, delay: ${delay}ms`
+          );
+          return delay * 1.25;
         }
-      } else {
-        // If Retry-After is seconds
-        console.log(`[ABI] Retry-After: ${retryAfter}`);
-        return parseInt(retryAfter) * 1000;
+      }
+
+      const secondsDelay = parseInt(retryAfter) * 1000;
+      if (!isNaN(secondsDelay)) {
+        console.log(`[ABI] Retry-After (seconds): ${secondsDelay}ms`);
+        return secondsDelay * 1.25;
       }
     }
 
-    // If ratelimit-reset is present, use it
     if (headers["ratelimit-reset"]) {
-      const resetTime = parseInt(headers["ratelimit-reset"]) * 1000;
-      return Math.max(0, resetTime - Date.now());
+      const resetTimestamp = parseInt(headers["ratelimit-reset"]) * 1000;
+      const delay = Math.max(0, resetTimestamp - Date.now());
+      console.log(`[ABI] Rate limit reset delay: ${delay}ms`);
+      return delay * 1.25;
+    }
+
+    if (error.response.status === 429) {
+      const exponentialDelay = Math.min(
+        MAX_DELAY,
+        BASE_DELAY * Math.pow(2, attempt) * (0.5 + Math.random() * 0.5)
+      );
+      console.log(
+        `[ABI] Rate limit exponential backoff delay: ${exponentialDelay}ms`
+      );
+      return exponentialDelay * 1.25;
     }
   }
 
-  // Only if no headers are present, use a default delay
-  return INITIAL_RETRY_DELAY;
+  // Default exponential backoff for other errors
+  const defaultDelay = Math.min(MAX_DELAY, BASE_DELAY * Math.pow(1.5, attempt));
+  console.log(`[ABI] Default delay: ${defaultDelay}ms`);
+  return defaultDelay;
 }
 
 const INITIAL_TIMEOUT = 30000; // 30 seconds
@@ -853,7 +876,7 @@ async function fetchWithRetry(
         });
 
         const waitTime = isRateLimit
-          ? getRetryDelay(error)
+          ? getRetryDelay(error, i)
           : isTimeout
           ? Math.min(currentTimeout * TIMEOUT_MULTIPLIER, MAX_TIMEOUT) -
             currentTimeout
