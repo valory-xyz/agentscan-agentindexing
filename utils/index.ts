@@ -296,7 +296,6 @@ async function getAbiFromCache(
   try {
     const cachedAbi = await redisClient.get(getAbiCacheKey(addressAndChain));
     if (cachedAbi) {
-      console.log(`[ABI] Cache hit for ${addressAndChain}`);
       // Handle the special case for invalid ABIs
       if (cachedAbi === "INVALID_ABI") {
         return cachedAbi;
