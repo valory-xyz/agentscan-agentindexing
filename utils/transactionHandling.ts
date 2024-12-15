@@ -83,7 +83,11 @@ async function decodeLogWithDetails(
             topics: log.topics,
           });
         } catch (decodeError) {
-          console.error("Full ABI decode failed:", decodeError);
+          console.error(
+            "Full ABI decode failed for contract:",
+            contractAddress,
+            decodeError
+          );
         }
       }
     } catch (error) {
