@@ -7,6 +7,10 @@ import { TokenTransferData } from "../src/types";
 
 const TTL = 7 * 24 * 60 * 60; // 1 week
 
+const INITIAL_RETRY_DELAY = 5000;
+
+const MAX_RETRIES = 100;
+
 const axiosInstance = axios.create({
   timeout: 5000,
   maxContentLength: 500000,
@@ -364,7 +368,7 @@ export async function checkAndStoreAbi(
     console.log(`[ABI] Fetching ABI from: ${url}`);
 
     try {
-      const response = await fetchWithRetry(url);
+      const response = await fetchWithRetry(url, MAX_RETRIES, INITIAL_TIMEOUT);
 
       await redisClient.set(abidataRedisKey, JSON.stringify(response.data), {
         EX: TTL,
@@ -383,6 +387,9 @@ export async function checkAndStoreAbi(
         blockNumber
       );
     } catch (error) {
+      if (isTimeoutError(error)) {
+        console.error(`[ABI] Final timeout for ${url} after all retries`);
+      }
       if (axios.isAxiosError(error)) {
         const status = error.response?.status;
         const headers = error.response?.headers;
@@ -745,10 +752,6 @@ export function isProxyContract(abi: string): boolean {
   }
 }
 
-const INITIAL_RETRY_DELAY = 5000;
-
-const MAX_RETRIES = 100;
-
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function getRetryDelay(error: any): number {
@@ -762,10 +765,12 @@ function getRetryDelay(error: any): number {
       if (isNaN(retryAfter as any)) {
         const retryDate = new Date(retryAfter);
         if (!isNaN(retryDate.getTime())) {
+          console.log(`[ABI] Retry-After: ${retryAfter}`);
           return Math.max(0, retryDate.getTime() - Date.now());
         }
       } else {
         // If Retry-After is seconds
+        console.log(`[ABI] Retry-After: ${retryAfter}`);
         return parseInt(retryAfter) * 1000;
       }
     }
@@ -781,16 +786,29 @@ function getRetryDelay(error: any): number {
   return INITIAL_RETRY_DELAY;
 }
 
+const INITIAL_TIMEOUT = 30000; // 30 seconds
+const MAX_TIMEOUT = 60000; // 60 seconds
+const TIMEOUT_MULTIPLIER = 1.5;
+
+function isTimeoutError(error: any): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    (error.code === "ECONNABORTED" || error.message.includes("timeout"))
+  );
+}
+
 async function fetchWithRetry(
   url: string,
-  retries = MAX_RETRIES
+  retries = MAX_RETRIES,
+  timeout = INITIAL_TIMEOUT
 ): Promise<any> {
   let lastError: any;
+  let currentTimeout = timeout;
 
   for (let i = 0; i < retries; i++) {
     try {
       const response = await axios.get(url, {
-        timeout: 30000,
+        timeout: currentTimeout,
         headers: {
           Accept: "application/json",
         },
@@ -799,25 +817,59 @@ async function fetchWithRetry(
     } catch (error) {
       lastError = error;
 
-      if (axios.isAxiosError(error) && error.response?.status === 429) {
-        const waitTime = getRetryDelay(error);
+      if (axios.isAxiosError(error)) {
+        const isTimeout =
+          error.code === "ECONNABORTED" || error.message.includes("timeout");
+        const isRateLimit = error.response?.status === 429;
+
+        const waitTime = isRateLimit
+          ? getRetryDelay(error)
+          : isTimeout
+          ? Math.min(currentTimeout * TIMEOUT_MULTIPLIER, MAX_TIMEOUT) -
+            currentTimeout
+          : INITIAL_RETRY_DELAY;
+
         const remainingAttempts = retries - i - 1;
 
-        console.log(
-          `[ABI] Rate limited by abidata.net. Attempt ${i + 1}/${retries}. ` +
-            `Waiting ${Math.round(waitTime / 1000)}s... ` +
-            `(${remainingAttempts} attempts remaining)`
-        );
+        if (isTimeout) {
+          console.log(
+            `[ABI] Timeout fetching ABI from ${url}. ` +
+              `Attempt ${i + 1}/${retries}. ` +
+              `Increasing timeout from ${currentTimeout}ms to ${Math.min(
+                currentTimeout * TIMEOUT_MULTIPLIER,
+                MAX_TIMEOUT
+              )}ms. ` +
+              `(${remainingAttempts} attempts remaining)`
+          );
+          currentTimeout = Math.min(
+            currentTimeout * TIMEOUT_MULTIPLIER,
+            MAX_TIMEOUT
+          );
+        } else if (isRateLimit) {
+          console.log(
+            `[ABI] Rate limited by abidata.net. Attempt ${i + 1}/${retries}. ` +
+              `Waiting ${Math.round(waitTime / 1000)}s... ` +
+              `(${remainingAttempts} attempts remaining)`
+          );
+        } else {
+          console.log(
+            `[ABI] Error fetching ABI from ${url}. ` +
+              `Attempt ${i + 1}/${retries}. ` +
+              `Error: ${error.message}. ` +
+              `Waiting ${Math.round(waitTime / 1000)}s... ` +
+              `(${remainingAttempts} attempts remaining)`
+          );
+        }
 
         await wait(waitTime);
         continue;
-      } else {
-        console.error(
-          `[ABI] Failed to fetch ABI for ${url}. Last error: ${
-            lastError?.message || "Unknown error"
-          }`
-        );
       }
+
+      console.error(
+        `[ABI] Failed to fetch ABI for ${url}. Last error: ${
+          lastError?.message || "Unknown error"
+        }`
+      );
       throw error;
     }
   }
