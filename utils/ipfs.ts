@@ -324,7 +324,28 @@ export async function recursiveDownload(
 //   }
 // }
 
-// Update processCodeContent to use safer queue operations
+// Add this utility function at the top of the file
+function sanitizeContent(content: string): string {
+  try {
+    // Remove null bytes
+    let sanitized = content.replace(/\0/g, "");
+
+    // Replace invalid UTF-8 sequences with replacement character
+    sanitized = sanitized.replace(/[\uFFFD\uFFFE\uFFFF]/g, "");
+
+    // Handle control characters (except common whitespace)
+    sanitized = sanitized.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, "");
+
+    // Ensure the string is valid UTF-8
+    return Buffer.from(sanitized).toString("utf8");
+  } catch (error) {
+    console.error("Content sanitization failed:", error);
+    // Return a safe fallback
+    return "[Content contains invalid characters]";
+  }
+}
+
+// Update the processCodeContent function
 async function processCodeContent(
   componentId: string,
   relativePath: string,
@@ -334,7 +355,16 @@ async function processCodeContent(
   cid: string
 ): Promise<boolean> {
   try {
-    const embeddings = await generateEmbeddingWithRetry(cleanedCodeContent);
+    // Sanitize the content before processing
+    const sanitizedContent = sanitizeContent(cleanedCodeContent);
+
+    // Check if content is empty after sanitization
+    if (!sanitizedContent.trim()) {
+      console.warn(`Content for ${relativePath} is empty after sanitization`);
+      return false;
+    }
+
+    const embeddings = await generateEmbeddingWithRetry(sanitizedContent);
     const fileName = path.basename(relativePath);
     console.log(`Processing ${fileName}`);
 
@@ -368,17 +398,13 @@ async function processCodeContent(
                     "component",
                     ipfsUrl,
                     `${gateway}/ipfs/${cid}`,
-                    cleanedCodeContent,
+                    sanitizedContent, // Use sanitized content
                     relativePath,
                     embedding,
                     true,
                   ]
                 );
               });
-              console.log(
-                `Inserted chunk ${index} for ${fileName}`,
-                result.rows[0]?.id
-              );
               return result.rows.length > 0;
             })
           );
@@ -409,14 +435,13 @@ async function processCodeContent(
                 "component",
                 ipfsUrl,
                 `${gateway}/ipfs/${cid}`,
-                cleanedCodeContent,
+                sanitizedContent, // Use sanitized content
                 relativePath,
                 embeddings,
                 false,
               ]
             );
           });
-          console.log(`Inserted ${fileName}`, result.rows[0]?.id);
           return result.rows.length > 0;
         }
       });
