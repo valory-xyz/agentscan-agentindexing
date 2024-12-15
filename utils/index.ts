@@ -170,13 +170,13 @@ export async function getImplementationAddress(
       contractAddress.toLowerCase() ===
         "0x0000000000000000000000000000000000000000"
     ) {
-      console.log("Invalid or zero contract address provided");
+      console.log("[IMP] Invalid or zero contract address provided");
       return null;
     }
 
     const formattedAddress = contractAddress.toLowerCase();
     if (!formattedAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
-      console.log(`Invalid address format: ${contractAddress}`);
+      console.log(`[IMP] Invalid address format: ${contractAddress}`);
       return null;
     }
 
@@ -203,7 +203,7 @@ export async function getImplementationAddress(
         implementationAddress !== "0x0000000000000000000000000000000000000000"
       ) {
         console.log(
-          `Found implementation via getImplementation() for ${formattedAddress}: ${implementationAddress}`
+          `[IMP] Found implementation via getImplementation() for ${formattedAddress}: ${implementationAddress}`
         );
 
         const implementationAbi = await checkAndStoreAbi(
@@ -222,7 +222,7 @@ export async function getImplementationAddress(
       }
     } catch (error) {
       console.log(
-        "No getImplementation function found, trying storage slots..."
+        "[IMP] No getImplementation function found, trying storage slots..."
       );
     }
 
@@ -261,7 +261,7 @@ export async function getImplementationAddress(
             "0x0000000000000000000000000000000000000000"
         ) {
           console.log(
-            `Found implementation at ${slotType} slot for ${formattedAddress}: ${cleanAddress}`
+            `[IMP] Found implementation at ${slotType} slot for ${formattedAddress}: ${cleanAddress}`
           );
 
           const implementationAbi = await checkAndStoreAbi(
@@ -281,10 +281,10 @@ export async function getImplementationAddress(
       }
     }
 
-    console.log(`No valid implementation found for ${formattedAddress}`);
+    console.log(`[IMP] No valid implementation found for ${formattedAddress}`);
     return null;
   } catch (error) {
-    console.error(`Error getting implementation address:`, error);
+    console.error(`[IMP] Error getting implementation address:`, error);
     return null;
   }
 }
@@ -294,6 +294,9 @@ interface ImplementationResult {
   abi: string | null;
 }
 
+const getAbidataRedisKey = (address: string, network: string) =>
+  `abidata:${address.toLowerCase()}:${network}`;
+
 export async function checkAndStoreAbi(
   contractAddress: string,
   chainId: number,
@@ -301,7 +304,6 @@ export async function checkAndStoreAbi(
   blockNumber: bigint
 ) {
   const formattedAddress = contractAddress.toLowerCase();
-  const redisKey = `abi:${formattedAddress}:${chainId}`;
 
   try {
     if (
@@ -310,54 +312,13 @@ export async function checkAndStoreAbi(
       contractAddress.toLowerCase() ===
         "0x0000000000000000000000000000000000000000"
     ) {
-      console.warn(`[ABI] Invalid contract address: ${contractAddress}`);
+      console.log(`[ABI] Invalid contract address: ${contractAddress}`);
       return null;
     }
 
     if (!formattedAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
-      console.warn(`[ABI] Invalid address format: ${contractAddress}`);
+      console.log(`[ABI] Invalid address format: ${contractAddress}`);
       return null;
-    }
-
-    try {
-      const cachedAbi = await redisClient.get(redisKey);
-      if (cachedAbi) {
-        console.log(`[ABI] Found cached ABI in Redis for ${formattedAddress}`);
-        return cachedAbi;
-      }
-    } catch (redisError) {
-      console.error(`[ABI] Redis error for ${formattedAddress}:`, {
-        error:
-          redisError instanceof Error ? redisError.message : "Unknown error",
-        stack: redisError instanceof Error ? redisError.stack : undefined,
-      });
-    }
-
-    try {
-      const checkQuery = `
-        SELECT abi_text FROM contract_abis 
-        WHERE address = $1 AND chain_id = $2
-      `;
-      const existingAbi = await pool.query(checkQuery, [
-        formattedAddress,
-        chainId,
-      ]);
-
-      if (existingAbi.rows.length > 0 && existingAbi.rows[0].abi_text) {
-        console.log(
-          `[ABI] Found cached ABI in database for ${formattedAddress}`
-        );
-        await redisClient.set(redisKey, existingAbi.rows[0].abi_text, {
-          EX: TTL,
-        });
-        return existingAbi.rows[0].abi_text;
-      }
-    } catch (dbError) {
-      console.error(`[ABI] Database query error for ${formattedAddress}:`, {
-        error: dbError instanceof Error ? dbError.message : "Unknown error",
-        code: (dbError as any)?.code,
-        stack: dbError instanceof Error ? dbError.stack : undefined,
-      });
     }
 
     const network =
@@ -369,138 +330,58 @@ export async function checkAndStoreAbi(
       throw new Error(`Unsupported chain ID: ${chainId}`);
     }
 
+    const abidataRedisKey = getAbidataRedisKey(formattedAddress, network);
+    try {
+      const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
+      if (cachedAbidataResponse) {
+        console.log(
+          `[ABI] Found cached abidata response for ${formattedAddress}`
+        );
+        const parsedResponse = JSON.parse(cachedAbidataResponse);
+        if (parsedResponse.ok && parsedResponse.abi) {
+          const abi_text = JSON.stringify(parsedResponse.abi);
+
+          return await processAbiResponse(
+            abi_text,
+            formattedAddress,
+            chainId,
+            context,
+            blockNumber
+          );
+        }
+      }
+    } catch (redisError) {
+      console.error(
+        `[ABI] Redis error for abidata cache ${formattedAddress}:`,
+        {
+          error:
+            redisError instanceof Error ? redisError.message : "Unknown error",
+        }
+      );
+    }
+
     const url = `https://abidata.net/${contractAddress}?network=${network}`;
     console.log(`[ABI] Fetching ABI from: ${url}`);
 
     try {
       const response = await fetchWithRetry(url);
 
+      await redisClient.set(abidataRedisKey, JSON.stringify(response.data), {
+        EX: TTL,
+      });
+
       if (!response.data?.ok || !response.data.abi) {
-        console.error(
-          `[ABI] Invalid response from ABI service for ${formattedAddress}:`,
-          {
-            status: response.status,
-            statusText: response.statusText,
-            data: response.data,
-          }
-        );
         throw new Error("No ABI found in response");
       }
 
       const abi_text = JSON.stringify(response.data.abi);
-
-      if (isProxyContract(abi_text)) {
-        console.log(
-          `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
-        );
-        const implementation = await getImplementationAddress(
-          contractAddress,
-          chainId,
-          context,
-          BigInt(blockNumber)
-        );
-
-        if (implementation?.abi) {
-          console.log(
-            `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
-          );
-
-          try {
-            const embedding = await generateEmbeddingWithRetry(
-              implementation.abi
-            );
-
-            const insertQuery = `
-              INSERT INTO contract_abis (
-                address,
-                chain_id,
-                abi_text,
-                abi_embedding,
-                implementation_address
-              ) VALUES ($1, $2, $3, $4, $5)
-              ON CONFLICT (address, chain_id) 
-              DO UPDATE SET 
-                abi_text = $3,
-                abi_embedding = $4,
-                implementation_address = $5,
-                updated_at = CURRENT_TIMESTAMP
-              RETURNING *
-            `;
-
-            await pool.query(insertQuery, [
-              formattedAddress,
-              chainId,
-              implementation.abi,
-              embedding,
-              implementation.address,
-            ]);
-
-            await redisClient.set(redisKey, implementation.abi, {
-              EX: TTL,
-            });
-
-            return implementation.abi;
-          } catch (error) {
-            console.error(
-              `[ABI] Error storing implementation ABI for ${formattedAddress}:`,
-              error
-            );
-            throw error;
-          }
-        }
-        return null;
-      }
-
-      console.log(`[ABI] Successfully fetched ABI for ${formattedAddress}`);
-
-      let embedding;
-      try {
-        embedding = await generateEmbeddingWithRetry(abi_text);
-        console.log(`[ABI] Generated embedding for ${formattedAddress}`);
-      } catch (embeddingError) {
-        console.error(
-          `[ABI] Embedding generation failed for ${formattedAddress}:`,
-          {
-            error:
-              embeddingError instanceof Error
-                ? embeddingError.message
-                : "Unknown error",
-            stack:
-              embeddingError instanceof Error
-                ? embeddingError.stack
-                : undefined,
-          }
-        );
-        throw embeddingError;
-      }
-
-      const insertQuery = `
-        INSERT INTO contract_abis (
-          address,
-          chain_id,
-          abi_text,
-          abi_embedding
-        ) VALUES ($1, $2, $3, $4)
-        ON CONFLICT (address, chain_id) 
-        DO UPDATE SET 
-          abi_text = $3,
-          abi_embedding = $4,
-          updated_at = CURRENT_TIMESTAMP
-        RETURNING *
-      `;
-
-      await pool.query(insertQuery, [
+      return await processAbiResponse(
+        abi_text,
         formattedAddress,
         chainId,
-        abi_text,
-        embedding,
-      ]);
-
-      await redisClient.set(redisKey, abi_text, {
-        EX: TTL,
-      });
-
-      return abi_text;
+        context,
+        blockNumber
+      );
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const status = error.response?.status;
@@ -541,6 +422,106 @@ export async function checkAndStoreAbi(
     });
     return null;
   }
+}
+
+async function processAbiResponse(
+  abi_text: string,
+  formattedAddress: string,
+  chainId: number,
+  context: any,
+  blockNumber: bigint
+) {
+  if (isProxyContract(abi_text)) {
+    console.log(
+      `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
+    );
+    const implementation = await getImplementationAddress(
+      formattedAddress,
+      chainId,
+      context,
+      blockNumber
+    );
+
+    if (implementation?.abi) {
+      console.log(
+        `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
+      );
+
+      try {
+        const embedding = await generateEmbeddingWithRetry(implementation.abi);
+
+        const insertQuery = `
+          INSERT INTO contract_abis (
+            address,
+            chain_id,
+            abi_text,
+            abi_embedding,
+            implementation_address
+          ) VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (address, chain_id) 
+          DO UPDATE SET 
+            abi_text = $3,
+            abi_embedding = $4,
+            implementation_address = $5,
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING *
+        `;
+
+        await pool.query(insertQuery, [
+          formattedAddress,
+          chainId,
+          implementation.abi,
+          embedding,
+          implementation.address,
+        ]);
+
+        return implementation.abi;
+      } catch (error) {
+        console.error(
+          `[ABI] Error storing implementation ABI for ${formattedAddress}:`,
+          error
+        );
+        throw error;
+      }
+    }
+    return null;
+  }
+
+  let embedding;
+  try {
+    embedding = await generateEmbeddingWithRetry(abi_text);
+    console.log(`[ABI] Generated embedding for ${formattedAddress}`);
+  } catch (embeddingError) {
+    console.error(
+      `[ABI] Embedding generation failed for ${formattedAddress}:`,
+      embeddingError
+    );
+    throw embeddingError;
+  }
+
+  const insertQuery = `
+    INSERT INTO contract_abis (
+      address,
+      chain_id,
+      abi_text,
+      abi_embedding
+    ) VALUES ($1, $2, $3, $4)
+    ON CONFLICT (address, chain_id) 
+    DO UPDATE SET 
+      abi_text = $3,
+      abi_embedding = $4,
+      updated_at = CURRENT_TIMESTAMP
+    RETURNING *
+  `;
+
+  await pool.query(insertQuery, [
+    formattedAddress,
+    chainId,
+    abi_text,
+    embedding,
+  ]);
+
+  return abi_text;
 }
 
 export const fetchAndTransformMetadata = async (
@@ -716,64 +697,56 @@ export function isProxyContract(abi: string): boolean {
   try {
     const abiObj = JSON.parse(abi);
 
-    const isProxy =
-      Array.isArray(abiObj) &&
-      ((abiObj.length === 2 &&
-        abiObj[0]?.type === "constructor" &&
-        abiObj[0]?.inputs?.length === 1 &&
-        abiObj[0]?.inputs[0]?.name === "_singleton" &&
-        abiObj[0]?.inputs[0]?.type === "address" &&
-        abiObj[1]?.type === "fallback" &&
-        abiObj[1]?.stateMutability === "payable") ||
-        abiObj.some(
-          (item: any) =>
-            item.type === "function" &&
-            item.name === "getImplementation" &&
-            item.outputs?.length === 1 &&
-            item.outputs[0].type === "address"
-        ) ||
-        (abiObj.some(
-          (item: any) =>
-            item.type === "constructor" &&
-            item.inputs?.length === 2 &&
-            item.inputs[0]?.type === "address" &&
-            item.inputs[0]?.name === "implementation" &&
-            item.inputs[1]?.type === "bytes" &&
-            item.inputs[1]?.name === "karmaData"
-        ) &&
-          abiObj.some((item: any) => item.type === "fallback")));
+    // Log the ABI for debugging
+    console.log("Checking ABI for proxy:", JSON.stringify(abiObj, null, 2));
 
-    if (isProxy) {
-      if (
-        abiObj.length === 2 &&
-        abiObj[0]?.inputs?.[0]?.name === "_singleton"
-      ) {
-        console.log("Detected Gnosis Safe Proxy Pattern");
-      } else if (
-        abiObj.some((item: any) => item.name === "getImplementation")
-      ) {
-        console.log("Detected getImplementation Pattern");
-      } else if (
-        abiObj.some(
-          (item: any) =>
-            item.type === "constructor" &&
-            item.inputs?.length === 2 &&
-            item.inputs[0]?.name === "implementation"
-        )
-      ) {
-        console.log("Detected Karma Proxy Pattern");
-      }
+    // Specific check for Gnosis Safe Proxy pattern
+    const isGnosisSafeProxy =
+      Array.isArray(abiObj) &&
+      abiObj.length === 2 &&
+      abiObj[0]?.type === "constructor" &&
+      abiObj[0]?.inputs?.length === 1 &&
+      abiObj[0]?.inputs[0]?.type === "address" &&
+      abiObj[0]?.inputs[0]?.internalType === "address" &&
+      abiObj[0]?.inputs[0]?.name === "_singleton" &&
+      abiObj[1]?.type === "fallback" &&
+      abiObj[1]?.stateMutability === "payable";
+
+    if (isGnosisSafeProxy) {
+      console.log("Detected Gnosis Safe Proxy Pattern");
+      return true;
     }
 
-    return isProxy;
+    // Check for other proxy patterns
+    const hasGetImplementation =
+      Array.isArray(abiObj) &&
+      abiObj.some(
+        (item: any) =>
+          item.type === "function" &&
+          item.name === "getImplementation" &&
+          item.outputs?.length === 1 &&
+          item.outputs[0].type === "address"
+      );
+
+    if (hasGetImplementation) {
+      console.log("Detected getImplementation Pattern");
+      return true;
+    }
+
+    // If none of the patterns match
+    console.log("No proxy pattern detected");
+    return false;
   } catch (error) {
-    console.error("Error checking proxy status:", error);
+    console.error("Error checking proxy status:", {
+      error: error instanceof Error ? error.message : "Unknown error",
+      abi,
+    });
     return false;
   }
 }
 
 const INITIAL_RETRY_DELAY = 5000;
-const MAX_RETRY_DELAY = 45000;
+
 const MAX_RETRIES = 100;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
