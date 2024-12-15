@@ -1,13 +1,5 @@
 import { OpenAI } from "openai";
-import dotenv from "dotenv";
 import pgvector from "pgvector";
-import { withRetry } from "viem";
-
-export const MAX_TOKENS = 6000;
-export const TOKEN_OVERLAP = 25;
-export const MIN_CHUNK_LENGTH = 100;
-
-dotenv.config();
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -15,12 +7,19 @@ const openai = new OpenAI({
 
 // Add type for retry options
 interface RetryOptions {
-  retryDelay?: number;
-  retryCount?: number;
+  maxRetries?: number;
+  initialDelay?: number;
 }
 
+// Add these constants at the top of the file
+export const MAX_TOKENS = 2000; // Significantly reduced from 4000
+export const TOKEN_OVERLAP = 25; // Reduced from 50
+export const MIN_CHUNK_LENGTH = 100;
+export const ABSOLUTE_MAX_TOKENS = 7000; // Reduced from 8000
+
 // Helper function to estimate tokens (rough approximation)
-export function estimateTokens(text: string): number {
+export function estimateTokens(text: string | undefined): number {
+  if (!text) return 0;
   // More aggressive token estimation
   if (text.trim().startsWith("{") || text.trim().startsWith("[")) {
     // Even more conservative for JSON/ABI content
@@ -29,6 +28,7 @@ export function estimateTokens(text: string): number {
   const hasCode = /[{}\[\]()]/g.test(text);
   return Math.ceil(text.length / (hasCode ? 2 : 3)); // More conservative estimates
 }
+
 // Content-specific token limits
 const TOKEN_LIMITS = {
   ABI: {
@@ -44,7 +44,7 @@ const TOKEN_LIMITS = {
     ABSOLUTE_MAX: 7000,
   },
   DEFAULT: {
-    MAX_TOKENS: 6000,
+    MAX_TOKENS: 7500,
     TOKEN_OVERLAP: 200,
     MIN_CHUNK_LENGTH: 100,
     ABSOLUTE_MAX: 7500,
@@ -72,7 +72,7 @@ function isABI(text: string): boolean {
 }
 
 export function splitTextIntoChunks(
-  text: string,
+  text: string | undefined,
   maxTokens: number = TOKEN_LIMITS.DEFAULT.MAX_TOKENS
 ): string[] {
   if (!text) return [];
@@ -188,6 +188,7 @@ export function splitTextIntoChunks(
       return splitBySize(abiText, limits.MAX_TOKENS, limits);
     }
   }
+
   // Handle regular text content
   if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
     const segments = text.split(/(?<=\.|\?|\!)\s+/);
@@ -217,6 +218,30 @@ export function splitTextIntoChunks(
   return chunks;
 }
 
+// Add a reusable retry utility
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: RetryOptions = {}
+): Promise<T> {
+  const { maxRetries = 3, initialDelay = 400 } = options;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt === maxRetries) {
+        console.error(`Failed all retry attempts:`, error);
+        throw error;
+      }
+      const delay =
+        initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
+      console.log(`Attempt ${attempt} failed. Retrying in ${delay}ms...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw new Error("Failed after all retries");
+}
+
 // Cache for embeddings
 const embeddingCache = new Map<string, number[]>();
 
@@ -238,7 +263,7 @@ export async function generateEmbeddingWithRetry(
 
     const embeddings: any[] = [];
     for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i] as string;
+      const chunk = chunks[i];
       console.log(
         `Processing chunk ${i + 1}/${
           chunks.length
@@ -253,9 +278,10 @@ export async function generateEmbeddingWithRetry(
           for (let j = 0; j < subChunks.length; j++) {
             const subChunk = subChunks[j];
             const embedding = await withRetry(async () => {
+              if (!subChunk) return null;
               const response = await openai.embeddings.create({
                 model: "text-embedding-3-small",
-                input: subChunk as string,
+                input: subChunk,
                 dimensions: 512,
               });
               return pgvector.toSql(response.data?.[0]?.embedding);
@@ -264,6 +290,7 @@ export async function generateEmbeddingWithRetry(
           }
         } else {
           const embedding = await withRetry(async () => {
+            if (!chunk) return null;
             const response = await openai.embeddings.create({
               model: "text-embedding-3-small",
               input: chunk,
@@ -293,5 +320,3 @@ export async function generateEmbeddingWithRetry(
     return embedding;
   }
 }
-
-export default openai;
