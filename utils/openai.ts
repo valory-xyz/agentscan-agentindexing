@@ -1,5 +1,8 @@
 import { OpenAI } from "openai";
 import pgvector from "pgvector";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
