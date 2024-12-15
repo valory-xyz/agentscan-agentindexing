@@ -10,3 +10,8 @@ export interface TokenTransferData {
     args: any;
   };
 }
+
+export interface ImplementationResult {
+  address: string;
+  abi: string | null;
+}

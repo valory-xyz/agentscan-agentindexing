@@ -1,5 +1,8 @@
 import { onchainTable, onchainEnum, index, relations } from "ponder";
 
+// ============================================================================
+// ENUMS
+// ============================================================================
 export const ServiceState = onchainEnum("state", [
   "UNREGISTERED",
   "REGISTERED",
@@ -9,6 +12,9 @@ export const ServiceState = onchainEnum("state", [
   "TERMINATED",
 ]);
 
+// ============================================================================
+// CORE TABLES
+// ============================================================================
 export const Service = onchainTable(
   "service",
   (t) => ({
@@ -119,35 +125,13 @@ export const Component = onchainTable(
   })
 );
 
-// Relations
-
+// ============================================================================
+// RELATIONSHIP TABLES
+// ============================================================================
 export const ServiceAgent = onchainTable("service_agent", (t) => ({
   id: t.text().primaryKey(),
   serviceId: t.text().notNull(),
   agentInstanceId: t.text().notNull(),
-}));
-
-export const ServiceAgentRelations = relations(ServiceAgent, ({ one }) => ({
-  service: one(Service, {
-    fields: [ServiceAgent.serviceId],
-    references: [Service.id],
-  }),
-  agentInstance: one(AgentInstance, {
-    fields: [ServiceAgent.agentInstanceId],
-    references: [AgentInstance.id],
-  }),
-}));
-
-// Add these relations for Service and Agent
-export const ServiceRelations = relations(Service, ({ many }) => ({
-  serviceAgents: many(ServiceAgent),
-}));
-
-export const AgentRelations = relations(Agent, ({ many }) => ({
-  instances: many(AgentInstance),
-  componentAgents: many(ComponentAgent),
-  toTransactions: many(AgentToTransaction),
-  fromTransactions: many(AgentFromTransaction),
 }));
 
 export const ComponentAgent = onchainTable("component_agent", (t) => ({
@@ -170,48 +154,9 @@ export const ComponentDependency = onchainTable(
   })
 );
 
-export const ComponentDependencyRelations = relations(
-  ComponentDependency,
-  ({ one }) => ({
-    component: one(Component, {
-      fields: [ComponentDependency.componentId],
-      references: [Component.id],
-    }),
-    dependency: one(Component, {
-      fields: [ComponentDependency.dependencyId],
-      references: [Component.id],
-    }),
-  })
-);
-
-export const ComponentRelations = relations(Component, ({ many }) => ({
-  agentComponents: many(ComponentAgent),
-  dependencies: many(ComponentDependency, { relationName: "component" }),
-  dependents: many(ComponentDependency, { relationName: "dependency" }),
-}));
-
-export const AgentComponentRelations = relations(Agent, ({ many }) => ({
-  componentAgents: many(ComponentAgent),
-}));
-
-export const ComponentAgentRelations = relations(ComponentAgent, ({ one }) => ({
-  component: one(Component, {
-    fields: [ComponentAgent.componentId],
-    references: [Component.id],
-  }),
-  agent: one(Agent, {
-    fields: [ComponentAgent.agentId],
-    references: [Agent.id],
-  }),
-}));
-
-export const AgentInstanceRelations = relations(AgentInstance, ({ one }) => ({
-  agent: one(Agent, {
-    fields: [AgentInstance.agentId],
-    references: [Agent.id],
-  }),
-}));
-
+// ============================================================================
+// TRANSACTION RELATED TABLES
+// ============================================================================
 export const Transaction = onchainTable(
   "transaction",
   (t) => ({
@@ -258,6 +203,31 @@ export const Transfer = onchainTable(
   })
 );
 
+export const Log = onchainTable(
+  "log",
+  (t) => ({
+    id: t.text().primaryKey(),
+    chain: t.text().notNull(),
+    transactionHash: t.text().notNull(),
+    logIndex: t.integer().notNull(),
+    address: t.text().notNull(),
+    data: t.text().notNull(),
+    topics: t.text().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+    eventName: t.text(),
+    decodedData: t.text(),
+  }),
+  (table) => ({
+    txHashIdx: index().on(table.transactionHash),
+    chainIdx: index().on(table.chain),
+    addressIdx: index().on(table.address),
+    blockNumberIdx: index().on(table.blockNumber),
+    timestampIdx: index().on(table.timestamp),
+    eventNameIdx: index().on(table.eventName),
+  })
+);
+
 export const AgentTransaction = onchainTable(
   "agent_transaction",
   (t) => ({
@@ -274,20 +244,6 @@ export const AgentTransaction = onchainTable(
     timestampIdx: index().on(table.timestamp),
     chainIdx: index().on(table.chain),
     blockNumberIdx: index().on(table.blockNumber),
-  })
-);
-
-export const AgentTransactionRelations = relations(
-  AgentTransaction,
-  ({ one }) => ({
-    agent: one(Agent, {
-      fields: [AgentTransaction.agentId],
-      references: [Agent.id],
-    }),
-    transaction: one(Transaction, {
-      fields: [AgentTransaction.transactionHash],
-      references: [Transaction.hash],
-    }),
   })
 );
 
@@ -329,6 +285,93 @@ export const AgentFromTransaction = onchainTable(
   })
 );
 
+// ============================================================================
+// RELATIONS
+// ============================================================================
+
+// Service Relations
+export const ServiceRelations = relations(Service, ({ many }) => ({
+  serviceAgents: many(ServiceAgent),
+}));
+
+export const ServiceAgentRelations = relations(ServiceAgent, ({ one }) => ({
+  service: one(Service, {
+    fields: [ServiceAgent.serviceId],
+    references: [Service.id],
+  }),
+  agentInstance: one(AgentInstance, {
+    fields: [ServiceAgent.agentInstanceId],
+    references: [AgentInstance.id],
+  }),
+}));
+
+// Agent Relations
+export const AgentRelations = relations(Agent, ({ many }) => ({
+  instances: many(AgentInstance),
+  componentAgents: many(ComponentAgent),
+  toTransactions: many(AgentToTransaction),
+  fromTransactions: many(AgentFromTransaction),
+}));
+
+export const AgentInstanceRelations = relations(AgentInstance, ({ one }) => ({
+  agent: one(Agent, {
+    fields: [AgentInstance.agentId],
+    references: [Agent.id],
+  }),
+}));
+
+// Component Relations
+export const ComponentRelations = relations(Component, ({ many }) => ({
+  agentComponents: many(ComponentAgent),
+  dependencies: many(ComponentDependency, { relationName: "component" }),
+  dependents: many(ComponentDependency, { relationName: "dependency" }),
+}));
+
+export const ComponentDependencyRelations = relations(
+  ComponentDependency,
+  ({ one }) => ({
+    component: one(Component, {
+      fields: [ComponentDependency.componentId],
+      references: [Component.id],
+    }),
+    dependency: one(Component, {
+      fields: [ComponentDependency.dependencyId],
+      references: [Component.id],
+    }),
+  })
+);
+
+export const ComponentAgentRelations = relations(ComponentAgent, ({ one }) => ({
+  component: one(Component, {
+    fields: [ComponentAgent.componentId],
+    references: [Component.id],
+  }),
+  agent: one(Agent, {
+    fields: [ComponentAgent.agentId],
+    references: [Agent.id],
+  }),
+}));
+
+// Transaction Relations
+export const TransactionRelations = relations(Transaction, ({ many }) => ({
+  logs: many(Log),
+  transfers: many(Transfer),
+}));
+
+export const AgentTransactionRelations = relations(
+  AgentTransaction,
+  ({ one }) => ({
+    agent: one(Agent, {
+      fields: [AgentTransaction.agentId],
+      references: [Agent.id],
+    }),
+    transaction: one(Transaction, {
+      fields: [AgentTransaction.transactionHash],
+      references: [Transaction.hash],
+    }),
+  })
+);
+
 export const AgentToTransactionRelations = relations(
   AgentToTransaction,
   ({ one }) => ({
@@ -356,36 +399,6 @@ export const AgentFromTransactionRelations = relations(
     }),
   })
 );
-
-export const Log = onchainTable(
-  "log",
-  (t) => ({
-    id: t.text().primaryKey(),
-    chain: t.text().notNull(),
-    transactionHash: t.text().notNull(),
-    logIndex: t.integer().notNull(),
-    address: t.text().notNull(),
-    data: t.text().notNull(),
-    topics: t.text().notNull(),
-    blockNumber: t.integer().notNull(),
-    timestamp: t.integer().notNull(),
-    eventName: t.text(),
-    decodedData: t.text(),
-  }),
-  (table) => ({
-    txHashIdx: index().on(table.transactionHash),
-    chainIdx: index().on(table.chain),
-    addressIdx: index().on(table.address),
-    blockNumberIdx: index().on(table.blockNumber),
-    timestampIdx: index().on(table.timestamp),
-    eventNameIdx: index().on(table.eventName),
-  })
-);
-
-export const TransactionRelations = relations(Transaction, ({ many }) => ({
-  logs: many(Log),
-  transfers: many(Transfer),
-}));
 
 export const LogRelations = relations(Log, ({ one }) => ({
   transaction: one(Transaction, {

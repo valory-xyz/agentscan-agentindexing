@@ -11,7 +11,7 @@ import {
 import { decodeEventLog } from "viem";
 
 import { Context } from "ponder:registry";
-import { EVENT_SIGNATURES } from "./constants";
+import { SIGNATURES } from "./constants";
 
 async function decodeLogWithDetails(
   log: any,
@@ -155,7 +155,7 @@ export async function processTransaction(
 
       let decodedLog = null;
 
-      if (eventSignature === EVENT_SIGNATURES.ERC20_TRANSFER) {
+      if (eventSignature === SIGNATURES.ERC20.TRANSFER_EVENT) {
         decodedLog = {
           contractAddress: log.address,
           eventSignature,
@@ -171,7 +171,7 @@ export async function processTransaction(
           rawData: log.data,
           rawTopics: log.topics,
         };
-      } else if (eventSignature === EVENT_SIGNATURES.FPMM_BUY) {
+      } else if (eventSignature === SIGNATURES.EVENTS.FPMM_BUY) {
         const data = log?.data?.slice(2) || "";
         const investmentAmount = data.slice(0, 64);
         const feeAmount = data.slice(64, 128);

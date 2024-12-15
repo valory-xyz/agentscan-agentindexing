@@ -85,5 +85,3 @@ const testConnection = async (): Promise<void> => {
 };
 
 void testConnection();
-
-export default executeQuery;

@@ -3,7 +3,7 @@ import axios from "axios";
 import { generateEmbeddingWithRetry } from "./openai";
 import { replaceBigInts } from "ponder";
 import { createClient } from "redis";
-import { TokenTransferData } from "../src/types";
+import { ImplementationResult, TokenTransferData } from "../src/types";
 import { pool } from "./postgres";
 
 const TTL = 7 * 24 * 60 * 60; // 1 week
@@ -22,19 +22,6 @@ const redisClient = createClient({
 });
 
 redisClient.connect().catch(console.error);
-
-const SIGNATURES = {
-  TRANSFER: "0xa9059cbb", // transfer(address,uint256)
-  TRANSFER_FROM: "0x23b872dd", // transferFrom(address,address,uint256)
-  // ERC721
-  TRANSFER_721: "0x42842e0e", // safeTransferFrom(address,address,uint256)
-  TRANSFER_721_DATA: "0xb88d4fde", // safeTransferFrom(address,address,uint256,bytes)
-  // ERC1155
-  TRANSFER_SINGLE: "0xf242432a", // safeTransferFrom(address,address,uint256,uint256,bytes)
-  TRANSFER_BATCH: "0x2eb2c2d6", // safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)
-  PROXY_FUNCTION: "0x4f1ef286",
-  DELEGATE_CALL: "0x5c60da1b",
-};
 
 export const getChainName = (contractName: string) => {
   return contractName
@@ -292,11 +279,6 @@ export async function getImplementationAddress(
     console.error(`[IMP] Error getting implementation address:`, error);
     return null;
   }
-}
-
-interface ImplementationResult {
-  address: string;
-  abi: string | null;
 }
 
 const getAbidataRedisKey = (address: string, network: string) =>
@@ -674,74 +656,6 @@ export async function isSafeTransaction(
   } catch (error) {
     console.error("Error checking Safe status:", error);
     return false;
-  }
-}
-
-export function decodeTokenTransfer(data: string): TokenTransferData | null {
-  if (!data || data === "0x") return null;
-
-  const methodId = data.slice(0, 10).toLowerCase();
-  const params = data.slice(10);
-
-  try {
-    switch (methodId) {
-      case SIGNATURES.TRANSFER: {
-        // ERC20 transfer(address,uint256)
-        return {
-          type: "ERC20",
-          to: "0x" + params.slice(24, 64),
-          amount: BigInt("0x" + params.slice(64)).toString(),
-        };
-      }
-      case SIGNATURES.TRANSFER_FROM: {
-        // ERC20/ERC721 transferFrom(address,address,uint256)
-        return {
-          type: "ERC20", // We'll refine this later with contract checks
-          from: "0x" + params.slice(24, 64),
-          to: "0x" + params.slice(88, 128),
-          amount: BigInt("0x" + params.slice(128)).toString(),
-        };
-      }
-      case SIGNATURES.TRANSFER_721:
-      case SIGNATURES.TRANSFER_721_DATA: {
-        // ERC721 safeTransferFrom
-        return {
-          type: "ERC721",
-          from: "0x" + params.slice(24, 64),
-          to: "0x" + params.slice(88, 128),
-          tokenId: BigInt("0x" + params.slice(128, 192)).toString(),
-          data:
-            methodId === SIGNATURES.TRANSFER_721_DATA
-              ? "0x" + params.slice(192)
-              : undefined,
-        };
-      }
-      case SIGNATURES.TRANSFER_SINGLE: {
-        // ERC1155 single transfer
-        return {
-          type: "ERC1155",
-          from: "0x" + params.slice(24, 64),
-          to: "0x" + params.slice(88, 128),
-          tokenId: BigInt("0x" + params.slice(128, 192)).toString(),
-          amount: BigInt("0x" + params.slice(192, 256)).toString(),
-          data: "0x" + params.slice(256),
-        };
-      }
-      case SIGNATURES.TRANSFER_BATCH: {
-        // ERC1155 batch transfer
-        return {
-          type: "ERC1155",
-          from: "0x" + params.slice(24, 64),
-          to: "0x" + params.slice(88, 128),
-          data: "0x" + params.slice(128), // Further decode arrays if needed
-        };
-      }
-      default:
-        return null;
-    }
-  } catch (error) {
-    console.error("Error decoding token transfer:", error);
-    return null;
   }
 }
 
