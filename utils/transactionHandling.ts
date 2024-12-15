@@ -43,9 +43,15 @@ async function decodeLogWithDetails(
 
     let decodedEvent = null as any;
 
-    const parsedAbi =
-      typeof contractAbi === "string" ? JSON.parse(contractAbi) : contractAbi;
+    // Handle both string and object ABI formats
+    const parsedAbi = Array.isArray(contractAbi)
+      ? contractAbi
+      : typeof contractAbi === "string"
+      ? JSON.parse(contractAbi)
+      : contractAbi;
+
     try {
+      // Find matching event fragment
       const eventFragment = parsedAbi?.find(
         (fragment: any) =>
           fragment.type === "event" && fragment.topics?.[0] === eventSignature
@@ -66,6 +72,7 @@ async function decodeLogWithDetails(
         }
       }
 
+      // Fallback to full ABI if event fragment decode fails
       if (!decodedEvent) {
         try {
           decodedEvent = decodeEventLog({
@@ -86,7 +93,7 @@ async function decodeLogWithDetails(
       console.error(`Error in event decoding for ${contractAddress}:`, error);
     }
 
-    const result = {
+    return {
       contractAddress,
       eventSignature,
       decoded: decodedEvent
@@ -99,8 +106,6 @@ async function decodeLogWithDetails(
       rawData: log.data,
       rawTopics: log.topics,
     };
-
-    return result;
   } catch (error: any) {
     console.error(`Failed to decode log for ${contractAddress}:`, error);
     return {
