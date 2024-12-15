@@ -11,7 +11,11 @@ import {
 } from "../src/types";
 import { pool } from "./postgres";
 import { processPackageDownload } from "./ipfs";
+import { decodeEventLog } from "viem";
 
+const getAbidataRedisKey = (address: string, network: string) =>
+  `abidata:${address.toLowerCase()}:${network}`;
+const INVALID_ABI_TTL = 60 * 60 * 2; // 2 hours
 const TTL = 7 * 24 * 60 * 60; // 1 week
 
 const INITIAL_RETRY_DELAY = 5000;
@@ -38,6 +42,10 @@ export const getChainName = (contractName: string) => {
     .replace("Registry", "")
     .replace("Staking", "")
     .toLowerCase();
+};
+
+export const getChainNameFromId = (chainId: number) => {
+  return chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : "mainnet";
 };
 
 export const createChainScopedId = (
@@ -277,8 +285,98 @@ export async function getImplementationAddress(
   }
 }
 
-const getAbidataRedisKey = (address: string, network: string) =>
-  `abidata:${address.toLowerCase()}:${network}`;
+const ABI_CACHE_TTL = 7 * 24 * 60 * 60; // 1 week in seconds
+
+const getAbiCacheKey = (addressAndChain: string) =>
+  `abi_content:${addressAndChain}`;
+
+async function getAbiFromCache(
+  addressAndChain: string
+): Promise<string | null> {
+  try {
+    const cachedAbi = await redisClient.get(getAbiCacheKey(addressAndChain));
+    if (cachedAbi) {
+      console.log(`[ABI] Cache hit for ${addressAndChain}`);
+      // Handle the special case for invalid ABIs
+      if (cachedAbi === "INVALID_ABI") {
+        return cachedAbi;
+      }
+
+      // If the cached value is already an array, stringify it
+      if (cachedAbi.startsWith("[")) {
+        return cachedAbi;
+      }
+
+      // If it's a stringified JSON string, parse it once
+      try {
+        const parsed = JSON.parse(cachedAbi);
+        return Array.isArray(parsed) ? cachedAbi : null;
+      } catch (parseError) {
+        console.error(`[ABI] Invalid JSON in cache for ${addressAndChain}:`, {
+          error:
+            parseError instanceof Error ? parseError.message : "Unknown error",
+          cachedValue: cachedAbi.substring(0, 100), // Log preview of invalid value
+        });
+        // Remove invalid cache entry
+        await redisClient.del(getAbiCacheKey(addressAndChain));
+        return null;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error(`[ABI] Redis cache error for ${addressAndChain}:`, {
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return null;
+  }
+}
+
+export async function setAbiInCache(
+  addressAndChain: string,
+  abiText: string | any
+): Promise<void> {
+  try {
+    // Special case for invalid ABIs
+    if (abiText === "INVALID_ABI") {
+      await redisClient.set(getAbiCacheKey(addressAndChain), "INVALID_ABI", {
+        EX: INVALID_ABI_TTL,
+      });
+      return;
+    }
+
+    // If abiText is already a string and starts with '[', it's already properly formatted
+    if (typeof abiText === "string" && abiText.startsWith("[")) {
+      await redisClient.set(getAbiCacheKey(addressAndChain), abiText, {
+        EX: ABI_CACHE_TTL,
+      });
+      return;
+    }
+
+    // If it's an object/array, stringify it once
+    const stringifiedAbi =
+      typeof abiText === "string" ? abiText : JSON.stringify(abiText);
+
+    // Validate that it's a proper ABI format (should start with '[')
+    if (!stringifiedAbi.startsWith("[")) {
+      console.error(`[ABI] Invalid ABI format for ${addressAndChain}`);
+      return;
+    }
+
+    await redisClient.set(getAbiCacheKey(addressAndChain), stringifiedAbi, {
+      EX: ABI_CACHE_TTL,
+    });
+
+    console.log(`[ABI] Cached ABI for ${addressAndChain}`);
+  } catch (error) {
+    console.error(`[ABI] Redis cache set error for ${addressAndChain}:`, {
+      error: error instanceof Error ? error.message : "Unknown error",
+      abiPreview:
+        typeof abiText === "string"
+          ? abiText.substring(0, 100)
+          : JSON.stringify(abiText).substring(0, 100),
+    });
+  }
+}
 
 export async function checkAndStoreAbi(
   contractAddress: string,
@@ -287,6 +385,7 @@ export async function checkAndStoreAbi(
   blockNumber: bigint
 ) {
   const formattedAddress = contractAddress.toLowerCase();
+  const addressAndChain = `${formattedAddress}-${getChainNameFromId(chainId)}`;
 
   try {
     if (
@@ -304,44 +403,50 @@ export async function checkAndStoreAbi(
       return null;
     }
 
-    const checkQuery = `
-      SELECT abi_text, error_message
-      FROM contract_abis 
-      WHERE address = $1 AND chain_id = $2
-    `;
-
-    const existingAbi = await pool.query(checkQuery, [
-      formattedAddress,
-      chainId,
-    ]);
-
-    if (existingAbi.rows.length > 0) {
-      if (existingAbi.rows[0].error_message) {
-        console.log(
-          `[ABI] Skipping known invalid ABI for ${formattedAddress}: ${existingAbi.rows[0].error_message}`
-        );
+    const cachedAbi = await getAbiFromCache(addressAndChain);
+    if (cachedAbi) {
+      if (cachedAbi === "INVALID_ABI") {
         return null;
       }
+      const parsedAbi =
+        typeof cachedAbi === "string" ? JSON.parse(cachedAbi) : cachedAbi;
 
+      return parsedAbi;
+    }
+
+    const checkQuery = `
+      SELECT content as abi_text
+      FROM context_embeddings 
+      WHERE id = $1 
+      AND type = 'abi'
+      LIMIT 1;
+    `;
+
+    const existingAbi = await pool.query(checkQuery, [addressAndChain]);
+
+    if (existingAbi.rows.length > 0) {
+      await setAbiInCache(addressAndChain, existingAbi.rows[0].abi_text);
       return existingAbi.rows[0].abi_text;
     }
 
-    const network =
-      chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : "mainnet";
+    const network = getChainNameFromId(chainId);
+
     if (!network) {
       console.error(
         `[ABI] Unsupported chain ID: ${chainId} for ${formattedAddress}`
       );
+
+      await setAbiInCache(addressAndChain, "INVALID_ABI");
       throw new Error(`Unsupported chain ID: ${chainId}`);
     }
 
     const abidataRedisKey = getAbidataRedisKey(formattedAddress, network);
     try {
       const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
-      if (cachedAbidataResponse) {
+      if (cachedAbidataResponse && cachedAbidataResponse !== "INVALID_ABI") {
         const parsedResponse = JSON.parse(cachedAbidataResponse);
-        if (parsedResponse.ok && parsedResponse.abi) {
-          const abi_text = JSON.stringify(parsedResponse.abi);
+        if (Array.isArray(parsedResponse)) {
+          const abi_text = JSON.stringify(parsedResponse);
           try {
             return await processAbiResponse(
               abi_text,
@@ -355,6 +460,7 @@ export async function checkAndStoreAbi(
               `[ABI] Error processing cached ABI for ${formattedAddress}:`,
               error
             );
+            await setAbiInCache(addressAndChain, "INVALID_ABI");
           }
         }
       }
@@ -375,11 +481,14 @@ export async function checkAndStoreAbi(
     try {
       const response = await fetchWithRetry(url, MAX_RETRIES, INITIAL_TIMEOUT);
 
-      await redisClient.set(abidataRedisKey, JSON.stringify(response.data), {
-        EX: TTL,
-      });
+      await redisClient.set(
+        abidataRedisKey,
+        JSON.stringify(response.data?.abi || []),
+        { EX: TTL }
+      );
 
       if (!response.data?.ok || !response.data.abi) {
+        await setAbiInCache(addressAndChain, "INVALID_ABI");
         throw new Error("No ABI found in response");
       }
 
@@ -396,27 +505,10 @@ export async function checkAndStoreAbi(
         const errorMessage = `Invalid ABI request: ${
           error.response?.data?.message || error.message
         }`;
-        const insertInvalidQuery = `
-          INSERT INTO contract_abis (
-            address,
-            chain_id,
-            error_message
-          ) VALUES ($1, $2, $3)
-          ON CONFLICT (address, chain_id) 
-          DO UPDATE SET 
-            error_message = $3,
-            updated_at = CURRENT_TIMESTAMP
-        `;
 
-        await pool.query(insertInvalidQuery, [
-          formattedAddress,
-          chainId,
-          errorMessage,
-        ]);
+        console.log(`[ABI] ${formattedAddress} is invalid: ${errorMessage}`);
 
-        console.log(
-          `[ABI] Marked ${formattedAddress} as invalid: ${errorMessage}`
-        );
+        await setAbiInCache(addressAndChain, "INVALID_ABI");
         return null;
       }
 
@@ -453,6 +545,7 @@ export async function checkAndStoreAbi(
         });
       }
 
+      await setAbiInCache(addressAndChain, "INVALID_ABI");
       return null;
     }
   } catch (error) {
@@ -460,38 +553,37 @@ export async function checkAndStoreAbi(
       error: error instanceof Error ? error.message : "Unknown error",
       stack: error instanceof Error ? error.stack : undefined,
     });
+
+    await setAbiInCache(addressAndChain, "INVALID_ABI");
     return null;
   }
 }
 
-// Helper function to normalize and validate ABI
-function normalizeAbi(abiInput: string): string | null {
-  try {
-    // Parse the ABI to validate it's proper JSON
-    let parsedAbi =
-      typeof abiInput === "string" ? JSON.parse(abiInput) : abiInput;
-
-    // Ensure it's an array
-    if (!Array.isArray(parsedAbi)) {
-      console.error("[ABI] Invalid ABI format: not an array");
-      return null;
-    }
-
-    return JSON.stringify(parsedAbi, null, 2);
-  } catch (error) {
-    console.error("[ABI] Error normalizing ABI:", error);
-    return null;
+function getChainExplorerUrl(chainId: number, contractAddress: string): string {
+  switch (chainId) {
+    case 8453:
+      return `https://basescan.org/address/${contractAddress}`;
+    case 100:
+      return `https://gnosisscan.io/address/${contractAddress}`;
+    case 1:
+    default:
+      return `https://etherscan.io/address/${contractAddress}`;
   }
 }
 
 async function processAbiResponse(
-  abi_text: string,
+  abi: any,
   formattedAddress: string,
   chainId: number,
   context: any,
   blockNumber: bigint
 ) {
-  if (isProxyContract(abi_text)) {
+  if (!abi) {
+    console.error(`[ABI] No ABI provided for ${formattedAddress}`);
+    return null;
+  }
+
+  if (isProxyContract(abi)) {
     console.log(
       `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
     );
@@ -506,94 +598,97 @@ async function processAbiResponse(
       console.log(
         `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
       );
-
       try {
-        // Normalize implementation ABI
-        const normalizedAbi = normalizeAbi(implementation.abi);
-        if (!normalizedAbi) {
-          throw new Error("Invalid implementation ABI format");
-        }
+        const embedding = await generateEmbeddingWithRetry(abi);
+        const chainName = getChainNameFromId(chainId);
+        const location = getChainExplorerUrl(chainId, formattedAddress);
 
-        const embedding = await generateEmbeddingWithRetry(normalizedAbi);
-
-        const insertQuery = `
-          INSERT INTO contract_abis (
-            address,
-            chain_id,
-            abi_text,
-            abi_embedding,
-            implementation_address
-          ) VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (address, chain_id) 
-          DO UPDATE SET 
-            abi_text = $3,
-            abi_embedding = $4,
-            implementation_address = $5,
-            updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `;
-
-        await pool.query(insertQuery, [
-          formattedAddress,
-          chainId,
-          normalizedAbi,
+        await storeAbiInDatabase({
+          id: `${formattedAddress}-${chainName}`,
+          location,
+          content: abi,
           embedding,
-          implementation.address,
-        ]);
+          implementationAddress: implementation?.address || null,
+        });
 
-        return normalizedAbi;
+        await setAbiInCache(`${formattedAddress}-${chainName}`, abi);
+        return abi;
       } catch (error) {
         console.error(
-          `[ABI] Error storing implementation ABI for ${formattedAddress}:`,
+          `[ABI] Error processing implementation ABI for ${formattedAddress}:`,
           error
         );
         throw error;
       }
     }
-    return null;
+    return abi;
   }
 
-  // Normalize the direct ABI
-  const normalizedAbi = normalizeAbi(abi_text);
-  if (!normalizedAbi) {
-    throw new Error("Invalid ABI format");
-  }
+  const embedding = await generateEmbeddingWithRetry(abi);
+  const chainName = getChainNameFromId(chainId);
+  const location = getChainExplorerUrl(chainId, formattedAddress);
 
-  let embedding;
-  try {
-    embedding = await generateEmbeddingWithRetry(normalizedAbi);
-    console.log(`[ABI] Generated embedding for ${formattedAddress}`);
-  } catch (embeddingError) {
-    console.error(
-      `[ABI] Embedding generation failed for ${formattedAddress}:`,
-      embeddingError
-    );
-    throw embeddingError;
-  }
+  await storeAbiInDatabase({
+    id: `${formattedAddress}-${chainName}`,
+    location,
+    content: abi,
+    embedding,
+    implementationAddress: null,
+  });
 
+  await setAbiInCache(`${formattedAddress}-${chainName}`, abi);
+  return abi;
+}
+
+async function storeAbiInDatabase({
+  id,
+  location,
+  content,
+  embedding,
+  implementationAddress = null as string | null,
+}: {
+  id: string;
+  location: string;
+  content: string;
+  embedding: string;
+  implementationAddress: string | null;
+}) {
   const insertQuery = `
-    INSERT INTO contract_abis (
-      address,
-      chain_id,
-      abi_text,
-      abi_embedding
-    ) VALUES ($1, $2, $3, $4)
-    ON CONFLICT (address, chain_id) 
+    INSERT INTO context_embeddings (
+      id,
+      company_id,
+      type,
+      location,
+      content,
+      name,
+      embedding,
+      is_chunk,
+      original_location
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (id) 
     DO UPDATE SET 
-      abi_text = $3,
-      abi_embedding = $4,
+      content = $5,
+      embedding = $7,
       updated_at = CURRENT_TIMESTAMP
     RETURNING *
   `;
 
   await pool.query(insertQuery, [
-    formattedAddress,
-    chainId,
-    normalizedAbi,
+    id,
+    "olas",
+    "abi",
+    location,
+    content,
+    id.split("-")[0],
     embedding,
+    false,
+    implementationAddress
+      ? getChainExplorerUrl(
+          getChainId(id.split("-")[1] || "mainnet"),
+          implementationAddress
+        )
+      : null,
   ]);
-
-  return normalizedAbi;
 }
 
 export const fetchAndTransformMetadata = async (
@@ -923,4 +1018,118 @@ async function fetchWithRetry(
         : JSON.stringify(errorDetails)
     }`
   );
+}
+
+async function decodeLogWithDetails(
+  log: any,
+  chainId: number,
+  context: any,
+  blockNumber: bigint
+) {
+  const contractAddress = log.address;
+  const eventSignature = log.topics[0];
+
+  try {
+    const contractAbi = await checkAndStoreAbi(
+      contractAddress,
+      chainId,
+      context,
+      blockNumber
+    );
+
+    if (!contractAbi) {
+      return {
+        contractAddress,
+        eventSignature,
+        rawData: log.data,
+        rawTopics: log.topics,
+        decoded: null,
+      };
+    }
+
+    let decodedEvent = null as any;
+
+    // Use the ABI directly since it's already parsed
+    const parsedAbi = contractAbi;
+
+    try {
+      const eventFragment = parsedAbi?.find(
+        (fragment: any) =>
+          fragment.type === "event" && fragment.topics?.[0] === eventSignature
+      );
+
+      if (eventFragment) {
+        try {
+          decodedEvent = decodeEventLog({
+            abi: [eventFragment],
+            data: log.data,
+            topics: log.topics,
+          });
+        } catch (error) {
+          console.log(
+            `Failed to decode with event fragment for ${contractAddress}:`,
+            error
+          );
+        }
+      }
+
+      if (!decodedEvent) {
+        try {
+          decodedEvent = decodeEventLog({
+            abi: parsedAbi,
+            data: log.data,
+            topics: log.topics,
+          });
+        } catch (decodeError) {
+          console.error(
+            "Full ABI decode failed for contract:",
+            contractAddress,
+            chainId,
+            decodeError
+          );
+        }
+      }
+    } catch (error) {
+      console.error(`Error in event decoding for ${contractAddress}:`, {
+        error: error instanceof Error ? error.message : "Unknown error",
+        abiType: typeof contractAbi,
+        isArray: Array.isArray(contractAbi),
+        contractAbiPreview:
+          typeof contractAbi === "string"
+            ? contractAbi.substring(0, 100)
+            : JSON.stringify(contractAbi).substring(0, 100),
+      });
+    }
+
+    const result = {
+      contractAddress,
+      eventSignature,
+      decoded: decodedEvent
+        ? {
+            name: decodedEvent.eventName,
+            args: convertBigIntsToStrings(decodedEvent.args),
+            signature: eventSignature,
+          }
+        : null,
+      rawData: log.data,
+      rawTopics: log.topics,
+    };
+
+    return result;
+  } catch (error: any) {
+    console.error(`Failed to decode log for ${contractAddress}:`, {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+      contractAddress,
+      eventSignature,
+    });
+    return {
+      contractAddress,
+      eventSignature,
+      error: error.message,
+      rawData: log.data,
+      rawTopics: log.topics,
+      decoded: null,
+    };
+  }
 }

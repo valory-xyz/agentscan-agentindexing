@@ -42,10 +42,11 @@ async function decodeLogWithDetails(
     }
 
     let decodedEvent = null as any;
-    const parsedAbi = JSON.parse(contractAbi);
 
+    const parsedAbi =
+      typeof contractAbi === "string" ? JSON.parse(contractAbi) : contractAbi;
     try {
-      const eventFragment = parsedAbi.find(
+      const eventFragment = parsedAbi?.find(
         (fragment: any) =>
           fragment.type === "event" && fragment.topics?.[0] === eventSignature
       );
