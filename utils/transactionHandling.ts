@@ -86,6 +86,7 @@ async function decodeLogWithDetails(
           console.error(
             "Full ABI decode failed for contract:",
             contractAddress,
+            chainId,
             decodeError
           );
         }

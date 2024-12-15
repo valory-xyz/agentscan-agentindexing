@@ -349,7 +349,7 @@ export async function checkAndStoreAbi(
     }
 
     const network =
-      chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : null;
+      chainId === 8453 ? "base" : chainId === 100 ? "gnosis" : "mainnet";
     if (!network) {
       console.error(
         `[ABI] Unsupported chain ID: ${chainId} for ${formattedAddress}`
