@@ -3,32 +3,46 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-if (!process.env.ABI_DATABASE_URL) {
-  throw new Error("ABI_DATABASE_URL environment variable is not defined");
-}
+let poolInstance: Pool | null = null;
 
-export const pool = new Pool({
-  connectionString: process.env.ABI_DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
-  max: 100,
-  idleTimeoutMillis: 240000,
-  connectionTimeoutMillis: 10000,
-});
+const createPool = (): Pool => {
+  if (!process.env.ABI_DATABASE_URL) {
+    throw new Error("ABI_DATABASE_URL environment variable is not defined");
+  }
 
-pool.on("error", (err, client) => {
-  console.error("Unexpected error on idle client:", {
-    error: err.message,
-    stack: err.stack,
+  const pool = new Pool({
+    connectionString: process.env.ABI_DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false,
+    },
   });
-});
+
+  pool.on("error", (err, client) => {
+    console.error("Unexpected error on idle client:", {
+      error: err.message,
+      stack: err.stack,
+    });
+  });
+
+  return pool;
+};
+
+export const getPool = (): Pool => {
+  if (!poolInstance) {
+    poolInstance = createPool();
+  }
+  return poolInstance;
+};
+
+export const pool = getPool();
 
 export const executeQuery = async <T>(
   queryFn: (client: PoolClient) => Promise<T>,
   retries = 3
 ): Promise<T> => {
+  const pool = getPool();
   let lastError;
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const client = await pool.connect();

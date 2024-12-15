@@ -1,9 +1,10 @@
 import axios from "axios";
-import { pool } from "./postgres";
+
 import { generateEmbeddingWithRetry } from "./openai";
 import { replaceBigInts } from "ponder";
 import { createClient } from "redis";
 import { TokenTransferData } from "../src/types";
+import { pool } from "./postgres";
 
 const TTL = 7 * 24 * 60 * 60; // 1 week
 
