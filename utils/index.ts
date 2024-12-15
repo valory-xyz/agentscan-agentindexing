@@ -818,9 +818,24 @@ async function fetchWithRetry(
       lastError = error;
 
       if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const headers = error.response?.headers;
+
         const isTimeout =
           error.code === "ECONNABORTED" || error.message.includes("timeout");
-        const isRateLimit = error.response?.status === 429;
+        const isRateLimit = status === 429;
+
+        console.error(`[ABI] HTTP error fetching ABI from ${url}:`, {
+          status,
+          headers: {
+            "retry-after": headers?.["retry-after"],
+            "ratelimit-reset": headers?.["ratelimit-reset"],
+            "ratelimit-remaining": headers?.["ratelimit-remaining"],
+          },
+          message: error.message,
+          code: error.code,
+          url: error.config?.url,
+        });
 
         const waitTime = isRateLimit
           ? getRetryDelay(error)
@@ -855,7 +870,7 @@ async function fetchWithRetry(
           console.log(
             `[ABI] Error fetching ABI from ${url}. ` +
               `Attempt ${i + 1}/${retries}. ` +
-              `Error: ${error.message}. ` +
+              `Status: ${status}. Error: ${error.message}. ` +
               `Waiting ${Math.round(waitTime / 1000)}s... ` +
               `(${remainingAttempts} attempts remaining)`
           );
@@ -863,20 +878,50 @@ async function fetchWithRetry(
 
         await wait(waitTime);
         continue;
+      } else {
+        // Non-Axios error
+        console.error(`[ABI] Non-HTTP error fetching ABI from ${url}:`, {
+          error:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  stack: error.stack,
+                  name: error.name,
+                }
+              : "Unknown error type",
+          type: typeof error,
+        });
       }
-
-      console.error(
-        `[ABI] Failed to fetch ABI for ${url}. Last error: ${
-          lastError?.message || "Unknown error"
-        }`
-      );
-      throw error;
     }
   }
 
+  const errorDetails =
+    lastError instanceof Error
+      ? {
+          message: lastError.message,
+          stack: lastError.stack,
+          name: lastError.name,
+          type: typeof lastError,
+          isAxiosError: axios.isAxiosError(lastError),
+          status: axios.isAxiosError(lastError)
+            ? lastError.response?.status
+            : undefined,
+          code: axios.isAxiosError(lastError) ? lastError.code : undefined,
+        }
+      : {
+          error: lastError,
+        };
+
+  console.error(
+    `[ABI] Failed after ${retries} retries for ${url}. Error details:`,
+    errorDetails
+  );
+
   throw new Error(
-    `Failed after ${retries} retries. Last error: ${
-      lastError?.message || "Unknown error"
+    `Failed after ${retries} retries. Error: ${
+      lastError instanceof Error
+        ? lastError.message
+        : JSON.stringify(errorDetails)
     }`
   );
 }
