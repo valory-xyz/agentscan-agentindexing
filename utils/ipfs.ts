@@ -221,13 +221,13 @@ async function isComponentCompleted(componentId: string): Promise<boolean> {
   const result = await dbQueue.add(async () => {
     return await executeQuery(async (client) => {
       const response = await client.query(
-        `SELECT status 
-         FROM component_processing_status 
-         WHERE component_id = $1 
-         AND status = $2`,
-        [componentId, ProcessingStatus.COMPLETED]
+        `SELECT COUNT(*) 
+         FROM context_embeddings 
+         WHERE id LIKE $1 
+         AND type = 'component'`,
+        [`${componentId}%`]
       );
-      return response.rows.length > 0;
+      return parseInt(response.rows[0]?.count, 10) > 0;
     });
   });
 
