@@ -632,7 +632,7 @@ async function parseDAGResponse(response: any): Promise<DAGResponse | null> {
         return JSON.parse(response.data);
       } catch (e) {
         // If it's not JSON and not an error pattern, it might be raw content
-        console.log("Response is not JSON, treating as raw content");
+        console.log("Response is not JSON, treating as raw content", response);
         return null;
       }
     }
