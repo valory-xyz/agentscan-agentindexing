@@ -327,7 +327,7 @@ export async function checkAndStoreAbi(
     }
 
     const checkQuery = `
-      SELECT abi_text 
+      SELECT abi_text, error_message
       FROM contract_abis 
       WHERE address = $1 AND chain_id = $2
     `;
@@ -338,6 +338,13 @@ export async function checkAndStoreAbi(
     ]);
 
     if (existingAbi.rows.length > 0) {
+      if (existingAbi.rows[0].error_message) {
+        console.log(
+          `[ABI] Skipping known invalid ABI for ${formattedAddress}: ${existingAbi.rows[0].error_message}`
+        );
+        return null;
+      }
+
       console.log(
         `[ABI] Found existing ABI in database for ${formattedAddress}`
       );
@@ -405,6 +412,34 @@ export async function checkAndStoreAbi(
         blockNumber
       );
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 400) {
+        const errorMessage = `Invalid ABI request: ${
+          error.response?.data?.message || error.message
+        }`;
+        const insertInvalidQuery = `
+          INSERT INTO contract_abis (
+            address,
+            chain_id,
+            error_message
+          ) VALUES ($1, $2, $3)
+          ON CONFLICT (address, chain_id) 
+          DO UPDATE SET 
+            error_message = $3,
+            updated_at = CURRENT_TIMESTAMP
+        `;
+
+        await pool.query(insertInvalidQuery, [
+          formattedAddress,
+          chainId,
+          errorMessage,
+        ]);
+
+        console.log(
+          `[ABI] Marked ${formattedAddress} as invalid: ${errorMessage}`
+        );
+        return null;
+      }
+
       if (isTimeoutError(error)) {
         console.error(`[ABI] Final timeout for ${url} after all retries`);
       }
