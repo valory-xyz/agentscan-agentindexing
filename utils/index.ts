@@ -407,10 +407,7 @@ export async function checkAndStoreAbi(
       if (cachedAbi === "INVALID_ABI") {
         return null;
       }
-      const parsedAbi =
-        typeof cachedAbi === "string" ? JSON.parse(cachedAbi) : cachedAbi;
-
-      return parsedAbi;
+      return typeof cachedAbi === "string" ? JSON.parse(cachedAbi) : cachedAbi;
     }
 
     const checkQuery = `
@@ -424,8 +421,18 @@ export async function checkAndStoreAbi(
     const existingAbi = await pool.query(checkQuery, [addressAndChain]);
 
     if (existingAbi.rows.length > 0) {
-      await setAbiInCache(addressAndChain, existingAbi.rows[0].abi_text);
-      return existingAbi.rows[0].abi_text;
+      const abiText = existingAbi.rows[0].abi_text;
+      if (typeof abiText === "string") {
+        try {
+          const parsedAbi = JSON.parse(abiText);
+          await setAbiInCache(addressAndChain, abiText);
+          return parsedAbi;
+        } catch (e) {
+          console.error(
+            `[ABI] Invalid ABI format in database for ${addressAndChain}`
+          );
+        }
+      }
     }
 
     const network = getChainNameFromId(chainId);
@@ -434,7 +441,6 @@ export async function checkAndStoreAbi(
       console.error(
         `[ABI] Unsupported chain ID: ${chainId} for ${formattedAddress}`
       );
-
       await setAbiInCache(addressAndChain, "INVALID_ABI");
       throw new Error(`Unsupported chain ID: ${chainId}`);
     }
@@ -443,10 +449,10 @@ export async function checkAndStoreAbi(
     try {
       const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
       if (cachedAbidataResponse && cachedAbidataResponse !== "INVALID_ABI") {
-        const parsedResponse = JSON.parse(cachedAbidataResponse);
-        if (Array.isArray(parsedResponse)) {
-          const abi_text = JSON.stringify(parsedResponse);
-          try {
+        try {
+          const parsedResponse = JSON.parse(cachedAbidataResponse);
+          if (Array.isArray(parsedResponse)) {
+            const abi_text = JSON.stringify(parsedResponse);
             return await processAbiResponse(
               abi_text,
               formattedAddress,
@@ -454,13 +460,11 @@ export async function checkAndStoreAbi(
               context,
               blockNumber
             );
-          } catch (error) {
-            console.error(
-              `[ABI] Error processing cached ABI for ${formattedAddress}:`,
-              error
-            );
-            await setAbiInCache(addressAndChain, "INVALID_ABI");
           }
+        } catch (e) {
+          console.error(
+            `[ABI] Invalid cached ABI format for ${formattedAddress}`
+          );
         }
       }
     } catch (redisError) {
@@ -480,20 +484,17 @@ export async function checkAndStoreAbi(
     try {
       const response = await fetchWithRetry(url, MAX_RETRIES, INITIAL_TIMEOUT);
 
-      await redisClient.set(
-        abidataRedisKey,
-        JSON.stringify(response.data?.abi || []),
-        { EX: TTL }
-      );
-
       if (!response.data?.ok || !response.data.abi) {
         await setAbiInCache(addressAndChain, "INVALID_ABI");
         throw new Error("No ABI found in response");
       }
 
-      const abi_text = JSON.stringify(response.data.abi);
+      const processedAbi = JSON.stringify(response.data.abi);
+
+      await redisClient.set(abidataRedisKey, processedAbi, { EX: TTL });
+
       return await processAbiResponse(
-        abi_text,
+        processedAbi,
         formattedAddress,
         chainId,
         context,
@@ -501,49 +502,16 @@ export async function checkAndStoreAbi(
       );
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 400) {
-        const errorMessage = `Invalid ABI request: ${
-          error.response?.data?.message || error.message
-        }`;
-
-        console.log(`[ABI] ${formattedAddress} is invalid: ${errorMessage}`);
-
+        console.log(
+          `[ABI] ${formattedAddress} is invalid: ${
+            error.response?.data?.message || error.message
+          }`
+        );
         await setAbiInCache(addressAndChain, "INVALID_ABI");
         return null;
       }
 
-      if (isTimeoutError(error)) {
-        console.error(`[ABI] Final timeout for ${url} after all retries`);
-      }
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status;
-        const headers = error.response?.headers;
-
-        console.error(
-          `[ABI] HTTP error fetching ABI for ${formattedAddress}:`,
-          {
-            status,
-            headers: {
-              "retry-after": headers?.["retry-after"],
-              "ratelimit-reset": headers?.["ratelimit-reset"],
-              "ratelimit-remaining": headers?.["ratelimit-remaining"],
-            },
-            message: error.message,
-            url: error.config?.url,
-          }
-        );
-
-        if (status === 429) {
-          console.error(
-            `[ABI] Rate limit exceeded for ${formattedAddress} after all retries`
-          );
-        }
-      } else {
-        console.error(`[ABI] Error fetching ABI for ${formattedAddress}:`, {
-          error: error instanceof Error ? error.message : "Unknown error",
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-      }
-
+      handleFetchError(error, url, formattedAddress);
       await setAbiInCache(addressAndChain, "INVALID_ABI");
       return null;
     }
@@ -552,9 +520,40 @@ export async function checkAndStoreAbi(
       error: error instanceof Error ? error.message : "Unknown error",
       stack: error instanceof Error ? error.stack : undefined,
     });
-
     await setAbiInCache(addressAndChain, "INVALID_ABI");
     return null;
+  }
+}
+
+function handleFetchError(error: any, url: string, formattedAddress: string) {
+  if (isTimeoutError(error)) {
+    console.error(`[ABI] Final timeout for ${url} after all retries`);
+  }
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const headers = error.response?.headers;
+
+    console.error(`[ABI] HTTP error fetching ABI for ${formattedAddress}:`, {
+      status,
+      headers: {
+        "retry-after": headers?.["retry-after"],
+        "ratelimit-reset": headers?.["ratelimit-reset"],
+        "ratelimit-remaining": headers?.["ratelimit-remaining"],
+      },
+      message: error.message,
+      url: error.config?.url,
+    });
+
+    if (status === 429) {
+      console.error(
+        `[ABI] Rate limit exceeded for ${formattedAddress} after all retries`
+      );
+    }
+  } else {
+    console.error(`[ABI] Error fetching ABI for ${formattedAddress}:`, {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
   }
 }
 
@@ -592,6 +591,7 @@ async function processAbiResponse(
       context,
       blockNumber
     );
+    console.log(`[ABI] Implementation:`, implementation);
 
     if (implementation && implementation?.abi) {
       console.log(
@@ -622,7 +622,7 @@ async function processAbiResponse(
     }
     return abi;
   }
-
+  console.log(`[ABI] abi detected for ${formattedAddress}`, abi);
   const embedding = await generateEmbeddingWithRetry(abi);
   const chainName = getChainNameFromId(chainId);
   const location = getChainExplorerUrl(chainId, formattedAddress);
@@ -652,6 +652,7 @@ async function storeAbiInDatabase({
   embedding: string;
   implementationAddress: string | null;
 }) {
+  console.log(`[ABI] Storing ABI for ${id} in database`, content);
   try {
     const insertQuery = `
       INSERT INTO context_embeddings (
