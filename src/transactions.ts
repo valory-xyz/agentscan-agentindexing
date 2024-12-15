@@ -13,9 +13,6 @@ REGISTER_NAMES.forEach((contractName) => {
     void processTransaction(event.transaction.hash, event, context, true);
 
     if (event.transaction.to) {
-      console.log(
-        `Checking ABI for ${event.transaction.to} in processTransaction`
-      );
       void checkAndStoreAbi(
         event.transaction.to.toString(),
         context.network.chainId as any,
@@ -29,9 +26,6 @@ REGISTER_NAMES.forEach((contractName) => {
     void processTransaction(event.transaction.hash, event, context, false);
 
     if (event.transaction.from) {
-      console.log(
-        `Checking ABI for ${event.transaction.from} in processTransaction`
-      );
       void checkAndStoreAbi(
         event.transaction.from.toString(),
         context.network.chainId as any,
