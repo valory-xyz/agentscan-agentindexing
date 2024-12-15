@@ -356,6 +356,7 @@ export async function checkAndStoreAbi(
     try {
       const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
       if (cachedAbidataResponse) {
+        console.log(`[ABI] Found cached ABI in Redis for ${formattedAddress}`);
         const parsedResponse = JSON.parse(cachedAbidataResponse);
         if (parsedResponse.ok && parsedResponse.abi) {
           const abi_text = JSON.stringify(parsedResponse.abi);
@@ -379,7 +380,8 @@ export async function checkAndStoreAbi(
       );
     }
 
-    const url = `https://abidata.net/${contractAddress}?network=${network}`;
+    const url =
+      `https://abidata.net/${contractAddress}?network=${network}`.trim();
     console.log(`[ABI] Fetching ABI from: ${url}`);
 
     try {
