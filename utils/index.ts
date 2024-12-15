@@ -464,6 +464,26 @@ export async function checkAndStoreAbi(
   }
 }
 
+// Helper function to normalize and validate ABI
+function normalizeAbi(abiInput: string): string | null {
+  try {
+    // Parse the ABI to validate it's proper JSON
+    let parsedAbi =
+      typeof abiInput === "string" ? JSON.parse(abiInput) : abiInput;
+
+    // Ensure it's an array
+    if (!Array.isArray(parsedAbi)) {
+      console.error("[ABI] Invalid ABI format: not an array");
+      return null;
+    }
+
+    return JSON.stringify(parsedAbi, null, 2);
+  } catch (error) {
+    console.error("[ABI] Error normalizing ABI:", error);
+    return null;
+  }
+}
+
 async function processAbiResponse(
   abi_text: string,
   formattedAddress: string,
@@ -482,13 +502,19 @@ async function processAbiResponse(
       blockNumber
     );
 
-    if (implementation?.abi) {
+    if (implementation && implementation?.abi) {
       console.log(
         `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
       );
 
       try {
-        const embedding = await generateEmbeddingWithRetry(implementation.abi);
+        // Normalize implementation ABI
+        const normalizedAbi = normalizeAbi(implementation.abi);
+        if (!normalizedAbi) {
+          throw new Error("Invalid implementation ABI format");
+        }
+
+        const embedding = await generateEmbeddingWithRetry(normalizedAbi);
 
         const insertQuery = `
           INSERT INTO contract_abis (
@@ -510,12 +536,12 @@ async function processAbiResponse(
         await pool.query(insertQuery, [
           formattedAddress,
           chainId,
-          implementation.abi,
+          normalizedAbi,
           embedding,
           implementation.address,
         ]);
 
-        return implementation.abi;
+        return normalizedAbi;
       } catch (error) {
         console.error(
           `[ABI] Error storing implementation ABI for ${formattedAddress}:`,
@@ -527,9 +553,15 @@ async function processAbiResponse(
     return null;
   }
 
+  // Normalize the direct ABI
+  const normalizedAbi = normalizeAbi(abi_text);
+  if (!normalizedAbi) {
+    throw new Error("Invalid ABI format");
+  }
+
   let embedding;
   try {
-    embedding = await generateEmbeddingWithRetry(abi_text);
+    embedding = await generateEmbeddingWithRetry(normalizedAbi);
     console.log(`[ABI] Generated embedding for ${formattedAddress}`);
   } catch (embeddingError) {
     console.error(
@@ -557,11 +589,11 @@ async function processAbiResponse(
   await pool.query(insertQuery, [
     formattedAddress,
     chainId,
-    abi_text,
+    normalizedAbi,
     embedding,
   ]);
 
-  return abi_text;
+  return normalizedAbi;
 }
 
 export const fetchAndTransformMetadata = async (
