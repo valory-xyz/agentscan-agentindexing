@@ -319,17 +319,26 @@ CONTRACT_NAMES.forEach((contractName) => {
     );
 
     try {
-      await context.db
-        .insert(AgentInstance)
-        .values({
-          id: event.args.agentInstance.toLowerCase(),
-          agentId: agentId,
-          serviceId: serviceId,
-          chain,
-          blockNumber: Number(event.block.number),
-          timestamp: Number(event.block.timestamp),
-        })
-        .onConflictDoNothing();
+      console.log("Inserting agent instance...");
+      try {
+        await context.db
+          .insert(AgentInstance)
+          .values({
+            id: event.args.agentInstance.toLowerCase(),
+            agentId: agentId,
+            chain,
+            blockNumber: Number(event.block.number),
+            timestamp: Number(event.block.timestamp),
+          })
+          .onConflictDoUpdate({
+            blockNumber: Number(event.block.number),
+            timestamp: Number(event.block.timestamp),
+            chain,
+            agentId,
+          });
+      } catch (e) {
+        console.error("Error inserting register agent instance:", e);
+      }
       try {
         await context.db
           .update(Service, { id: serviceId })
