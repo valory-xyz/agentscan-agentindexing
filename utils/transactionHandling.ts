@@ -127,12 +127,6 @@ async function decodeLogWithDetails(
       rawTopics: log.topics,
     };
 
-    console.log(`[DECODE] Decode result for ${contractAddress}:`, {
-      success: !!decodedEvent,
-      eventName: decodedEvent?.eventName || "Unknown",
-      hasArgs: !!decodedEvent?.args,
-    });
-
     return result;
   } catch (error: any) {
     console.error(`[DECODE] Failed to decode log for ${contractAddress}:`, {
