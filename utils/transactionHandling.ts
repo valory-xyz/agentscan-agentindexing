@@ -177,8 +177,6 @@ export async function processTransaction(
       hash: hash as `0x${string}`,
     });
 
-    console.log(`[TX] Receipt for ${hash}:`, receipt);
-
     const logs = receipt?.logs || [];
 
     const decodedLogs = [] as any[];
@@ -260,6 +258,7 @@ export async function processTransaction(
           context,
           blockNumber
         )) as any;
+        console.log(`[TX] Decoded log for ${hash}:`, decodedLog);
       }
 
       if (decodedLog) {
