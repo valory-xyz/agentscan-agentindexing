@@ -242,7 +242,6 @@ export async function processTransaction(
           context,
           blockNumber
         )) as any;
-        console.log(`[TX] Decoded log for ${hash}:`, decodedLog);
       }
 
       if (decodedLog) {
@@ -279,6 +278,8 @@ export async function processTransaction(
         JSON.parse(transactionData.logs).length
       } logs`
     );
+
+    formatTransactionLogs(hash, JSON.parse(transactionData.logs));
 
     try {
       await context.db
@@ -360,8 +361,6 @@ export async function processTransaction(
         });
       }
     }
-
-    formatTransactionLogs(hash, decodedLogs);
 
     return transactionData;
   } catch (error) {
