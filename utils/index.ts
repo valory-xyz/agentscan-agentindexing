@@ -239,6 +239,8 @@ export async function getImplementationAddress(
         "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
       KARMA_PROXY:
         "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f",
+      SERVICE_STAKING_PROXY:
+        "0x9e5e169c1098011e4e5940a3ec1797686b2a8294a9b77a4c676b121bdc0ebb5e",
     } as const;
 
     for (const [slotType, slot] of Object.entries(PROXY_IMPLEMENTATION_SLOTS)) {
@@ -783,7 +785,28 @@ export function isProxyContract(abi: string): boolean {
   try {
     const abiObj = JSON.parse(abi);
 
-    // Gnosis Safe Proxy pattern - checks for singleton storage slot
+    // Check for SERVICE_STAKING_PROXY constant and getImplementation function
+    const isServiceStakingProxy =
+      Array.isArray(abiObj) &&
+      abiObj.some(
+        (item) =>
+          item.type === "function" &&
+          item.name === "SERVICE_STAKING_PROXY" &&
+          item.outputs?.[0]?.type === "bytes32"
+      ) &&
+      abiObj.some(
+        (item) =>
+          item.type === "function" &&
+          item.name === "getImplementation" &&
+          item.outputs?.[0]?.type === "address"
+      );
+
+    if (isServiceStakingProxy) {
+      console.log("[ABI] Detected Service Staking Proxy Pattern");
+      return true;
+    }
+
+    // Existing Gnosis Safe Proxy pattern check
     const isGnosisSafeProxy =
       Array.isArray(abiObj) &&
       abiObj.some(
@@ -803,7 +826,7 @@ export function isProxyContract(abi: string): boolean {
       return true;
     }
 
-    // Check for other proxy patterns
+    // Generic getImplementation pattern check
     const hasGetImplementation =
       Array.isArray(abiObj) &&
       abiObj.some(
@@ -815,11 +838,15 @@ export function isProxyContract(abi: string): boolean {
       );
 
     if (hasGetImplementation) {
-      console.log("Detected getImplementation Pattern");
+      console.log("[ABI] Detected getImplementation Pattern");
       return true;
     }
 
-    console.log("No proxy pattern detected");
+    // Add the custom storage slot to PROXY_IMPLEMENTATION_SLOTS in getImplementationAddress
+    const SERVICE_STAKING_SLOT =
+      "0x9e5e169c1098011e4e5940a3ec1797686b2a8294a9b77a4c676b121bdc0ebb5e";
+
+    console.log("[ABI] No proxy pattern detected");
     return false;
   } catch (error) {
     console.error("[ABI] Error checking proxy status:", {
