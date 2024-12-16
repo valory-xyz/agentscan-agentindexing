@@ -25,10 +25,6 @@ async function decodeLogWithDetails(
   const contractAddress = log.address?.toLowerCase();
   const eventSignature = log.topics[0];
 
-  console.log(
-    `[DECODE] Starting log decode for contract ${contractAddress} with signature ${eventSignature}`
-  );
-
   try {
     const contractAbi = await checkAndStoreAbi(
       contractAddress,
@@ -50,7 +46,6 @@ async function decodeLogWithDetails(
 
     let decodedEvent = null as any;
 
-    // Handle both string and object ABI formats
     const parsedAbi = Array.isArray(contractAbi)
       ? contractAbi
       : typeof contractAbi === "string"
@@ -233,9 +228,6 @@ export async function processTransaction(
           rawTopics: log?.topics || [],
         };
       } else {
-        console.log(
-          `[TX] Using generic decoder for log ${i} from contract ${contractAddress}`
-        );
         decodedLog = (await decodeLogWithDetails(
           log,
           chainId,

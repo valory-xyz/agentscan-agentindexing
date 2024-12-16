@@ -192,8 +192,6 @@ export async function getImplementationAddress(
     } as const;
 
     for (const [slotType, slot] of Object.entries(PROXY_IMPLEMENTATION_SLOTS)) {
-      console.log(`[IMP] Checking ${slotType} slot for ${formattedAddress}`);
-
       const implementationAddress = await context.client.getStorageAt({
         address: formattedAddress as `0x${string}`,
         slot: slot as `0x${string}`,
@@ -886,7 +884,6 @@ export function isProxyContract(abi: any): boolean {
       return true;
     }
 
-    console.log("[ABI] No proxy pattern detected");
     return false;
   } catch (error) {
     console.error("[ABI] Error checking proxy status:", {
