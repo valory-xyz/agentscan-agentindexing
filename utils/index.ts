@@ -15,7 +15,7 @@ import { decodeEventLog } from "viem";
 
 const getAbidataRedisKey = (address: string, network: string) =>
   `abidata:${address.toLowerCase()}:${network}`;
-const INVALID_ABI_TTL = 60 * 60 * 2; // 2 hours
+
 const TTL = 7 * 24 * 60 * 60; // 1 week
 
 const INITIAL_RETRY_DELAY = 5000;
@@ -348,7 +348,7 @@ export async function checkAndStoreAbi(
     const abidataRedisKey = getAbidataRedisKey(formattedAddress, network);
     try {
       const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
-      if (cachedAbidataResponse && cachedAbidataResponse !== "INVALID_ABI") {
+      if (cachedAbidataResponse) {
         try {
           const parsedResponse = JSON.parse(cachedAbidataResponse);
           if (Array.isArray(parsedResponse)) {
