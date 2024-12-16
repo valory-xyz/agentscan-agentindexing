@@ -336,7 +336,7 @@ export async function checkAndStoreAbi(
           const parsedAbi = JSON.parse(abiText);
           if (isImplementation && isProxyContract(parsedAbi)) {
             console.log(
-              `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
+              `[ABI] Found cached proxy ABI for ${formattedAddress}, fetching implementation`
             );
             const implementation = await getImplementationAddress(
               formattedAddress,
@@ -344,9 +344,9 @@ export async function checkAndStoreAbi(
               context,
               blockNumber
             );
-            if (implementation && implementation.abi) {
+            if (implementation?.address && implementation?.abi) {
               console.log(
-                `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
+                `[ABI] Using cached implementation at ${implementation.address} for ${formattedAddress}`
               );
               return implementation.abi;
             }
@@ -529,7 +529,21 @@ async function processAbiResponse(
     return null;
   }
 
-  if (isImplementation && isProxyContract(abi)) {
+  let parsedAbi;
+  try {
+    parsedAbi = typeof abi === "string" ? JSON.parse(abi) : abi;
+  } catch (e) {
+    console.error(`[ABI] Failed to parse ABI for ${formattedAddress}:`, e);
+    return null;
+  }
+
+  // Store the original ABI first
+  const embeddings = await generateEmbeddingWithRetry(abi);
+  const chainName = getChainNameFromId(chainId);
+  const location = getChainExplorerUrl(chainId, formattedAddress);
+
+  // Only check for implementation if this isn't already an implementation lookup
+  if (isImplementation && isProxyContract(parsedAbi)) {
     console.log(
       `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
     );
@@ -540,39 +554,25 @@ async function processAbiResponse(
       blockNumber
     );
 
-    if (implementation && implementation.abi) {
+    if (implementation?.address && implementation?.abi) {
       console.log(
         `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
       );
-      try {
-        const embeddings = await generateEmbeddingWithRetry(abi);
-        const chainName = getChainNameFromId(chainId);
-        const location = getChainExplorerUrl(chainId, formattedAddress);
 
-        await storeAbiInDatabase({
-          id: `${formattedAddress}-${chainName}`,
-          location,
-          content: abi,
-          embeddings,
-          implementationAddress: implementation.address,
-        });
+      // Store the proxy ABI with implementation reference
+      await storeAbiInDatabase({
+        id: `${formattedAddress}-${chainName}`,
+        location,
+        content: abi,
+        embeddings,
+        implementationAddress: implementation.address,
+      });
 
-        return implementation.abi;
-      } catch (error) {
-        console.error(
-          `[ABI] Error processing implementation ABI for ${formattedAddress}:`,
-          error
-        );
-        throw error;
-      }
+      return implementation.abi;
     }
   }
 
-  console.log(`[ABI] No proxy detected for ${formattedAddress}`, typeof abi);
-  const embeddings = await generateEmbeddingWithRetry(abi);
-  const chainName = getChainNameFromId(chainId);
-  const location = getChainExplorerUrl(chainId, formattedAddress);
-
+  // Store non-proxy ABI or if implementation fetch failed
   await storeAbiInDatabase({
     id: `${formattedAddress}-${chainName}`,
     location,
@@ -581,7 +581,7 @@ async function processAbiResponse(
     implementationAddress: null,
   });
 
-  return abi;
+  return parsedAbi;
 }
 
 async function storeAbiInDatabase({
