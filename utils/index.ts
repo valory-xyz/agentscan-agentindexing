@@ -820,13 +820,17 @@ export function convertBigIntsToStrings(obj: any): any {
   return replaceBigInts(obj, (v) => String(v));
 }
 
-export function isProxyContract(abi: string): boolean {
+export function isProxyContract(abi: any): boolean {
   try {
-    const abiObj = JSON.parse(abi);
+    const abiObj = typeof abi === "string" ? JSON.parse(abi) : abi;
+
+    if (!Array.isArray(abiObj)) {
+      console.log("[ABI] Invalid ABI format - not an array");
+      return false;
+    }
 
     // Check for SERVICE_STAKING_PROXY constant and getImplementation function
     const isServiceStakingProxy =
-      Array.isArray(abiObj) &&
       abiObj.some(
         (item: any) =>
           item.type === "function" &&
@@ -845,9 +849,8 @@ export function isProxyContract(abi: string): boolean {
       return true;
     }
 
-    // Existing Gnosis Safe Proxy pattern check
+    // Gnosis Safe Proxy pattern check
     const isGnosisSafeProxy =
-      Array.isArray(abiObj) &&
       abiObj.some(
         (item) => item.type === "fallback" && item.stateMutability === "payable"
       ) &&
@@ -865,16 +868,14 @@ export function isProxyContract(abi: string): boolean {
       return true;
     }
 
-    // Generic getImplementation pattern check
-    const hasGetImplementation =
-      Array.isArray(abiObj) &&
-      abiObj.some(
-        (item: any) =>
-          item.type === "function" &&
-          item.name === "getImplementation" &&
-          item.outputs?.length === 1 &&
-          item.outputs[0].type === "address"
-      );
+    //getImplementation pattern check
+    const hasGetImplementation = abiObj.some(
+      (item: any) =>
+        item.type === "function" &&
+        item.name === "getImplementation" &&
+        item.outputs?.length === 1 &&
+        item.outputs[0].type === "address"
+    );
 
     if (hasGetImplementation) {
       console.log("[ABI] Detected getImplementation Pattern");
@@ -886,7 +887,11 @@ export function isProxyContract(abi: string): boolean {
   } catch (error) {
     console.error("[ABI] Error checking proxy status:", {
       error: error instanceof Error ? error.message : "Unknown error",
-      abi,
+      abi: typeof abi === "string" ? "string" : typeof abi,
+      sample:
+        typeof abi === "object"
+          ? JSON.stringify(abi).slice(0, 100) + "..."
+          : "n/a",
     });
     return false;
   }
