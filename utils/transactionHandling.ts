@@ -187,11 +187,6 @@ export async function processTransaction(
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i];
       const contractAddress = log?.address?.toLowerCase();
-      console.log(
-        `[TX] Processing log ${i + 1}/${
-          logs.length
-        } for ${hash} from contract ${contractAddress}`
-      );
 
       if (!log) {
         console.error(`[TX] Log ${i} is undefined for transaction ${hash}`);
@@ -288,26 +283,6 @@ export async function processTransaction(
       }
     }
 
-    // After processing all logs, add a summary
-    console.log(`[TX] Log summary for ${hash}:`, {
-      totalLogs: decodedLogs.length,
-      events: decodedLogs.map((log, index) => {
-        const eventName =
-          log.decoded?.decoded?.name || log.decoded?.name || "Unknown";
-        const contractAddress = log.address?.toLowerCase();
-        return {
-          index,
-          eventName,
-          contractAddress,
-          signature: log.decoded?.eventSignature || log.topics?.[0],
-          isUnknown: eventName === "Unknown",
-          args: log.decoded?.decoded?.args
-            ? convertBigIntsToStrings(log.decoded.decoded.args)
-            : null,
-        };
-      }),
-    });
-
     const transactionData = convertBigIntsToStrings({
       hash: event.transaction.hash,
       blockNumber: Number(blockNumber),
@@ -329,18 +304,6 @@ export async function processTransaction(
       `Transaction Data logs length for ${hash}: ${
         JSON.parse(transactionData.logs).length
       } logs`
-    );
-
-    console.log(
-      `Log Names for ${hash}: ${JSON.parse(transactionData.logs)
-        .map((log: any) => {
-          const logName = log.decoded?.decoded?.name || "Unknown";
-          if (logName === "Unknown") {
-            return `Unknown(contract: ${log.decoded?.contractAddress}, signature: ${log.decoded?.eventSignature})`;
-          }
-          return logName;
-        })
-        .join(", ")}`
     );
 
     try {
@@ -389,6 +352,7 @@ export async function processTransaction(
     console.log(
       `[TX] Starting to store ${decodedLogs.length} logs for ${hash}`
     );
+
     for (const decodedLog of decodedLogs) {
       try {
         const eventName =
@@ -397,35 +361,23 @@ export async function processTransaction(
           "Unknown";
         const contractAddress = decodedLog.address?.toLowerCase();
 
-        console.log(`[TX] Storing log:`, {
-          transactionHash: hash,
-          logIndex: decodedLog.logIndex,
-          eventName,
-          contractAddress,
-          isUnknown: eventName === "Unknown",
-        });
-
         await context.db.insert(Log).values({
           id: `${hash}-${decodedLog.logIndex}`,
           chain: context.network?.name,
           transactionHash: hash,
           logIndex: Number(decodedLog.logIndex),
-          address: decodedLog?.address?.toString() || "",
+          address: contractAddress || "",
           data: decodedLog?.data?.toString() || "",
           topics: JSON.stringify(decodedLog?.topics || []),
           blockNumber: Number(blockNumber),
           timestamp: Number(event.block.timestamp),
-          eventName: decodedLog?.decoded?.decoded?.name || null,
+          eventName: eventName || null,
           decodedData: decodedLog?.decoded?.decoded?.args
             ? JSON.stringify(
                 convertBigIntsToStrings(decodedLog.decoded.decoded.args)
               )
             : null,
         });
-
-        console.log(
-          `[TX] Successfully stored ${eventName} log ${decodedLog.logIndex} for ${hash}`
-        );
       } catch (error) {
         console.error(`[TX] Error inserting log for ${hash}:`, {
           logIndex: decodedLog.logIndex,
@@ -434,6 +386,24 @@ export async function processTransaction(
         });
       }
     }
+
+    // Add this after processing all logs
+    console.log(
+      `[TX] Events for ${hash}:\n${decodedLogs
+        .map((log) => {
+          const eventName =
+            log.decoded?.decoded?.name || log.decoded?.name || "Unknown";
+          const args = log.decoded?.decoded?.args || log.decoded?.args;
+
+          if (eventName === "Unknown") {
+            return `Unknown (contract: ${log.address?.toLowerCase()})`;
+          }
+
+          const argsString = args ? ` [${JSON.stringify(args)}]` : "";
+          return `${eventName}${argsString}`;
+        })
+        .join(", ")}`
+    );
 
     return transactionData;
   } catch (error) {
