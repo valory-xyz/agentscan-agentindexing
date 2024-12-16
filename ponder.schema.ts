@@ -1,4 +1,10 @@
-import { onchainTable, onchainEnum, index, relations } from "ponder";
+import {
+  onchainTable,
+  onchainEnum,
+  index,
+  relations,
+  primaryKey,
+} from "ponder";
 
 // ============================================================================
 // ENUMS
@@ -162,7 +168,7 @@ export const ComponentDependency = onchainTable(
 export const Transaction = onchainTable(
   "transaction",
   (t) => ({
-    hash: t.text().primaryKey(),
+    hash: t.text(),
     chain: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
@@ -174,6 +180,7 @@ export const Transaction = onchainTable(
     decodedFunction: t.text(),
   }),
   (table) => ({
+    pk: primaryKey({ columns: [table.hash, table.chain] }),
     hashIdx: index().on(table.hash),
     chainIdx: index().on(table.chain),
     fromIdx: index().on(table.from),
@@ -208,7 +215,7 @@ export const Transfer = onchainTable(
 export const Log = onchainTable(
   "log",
   (t) => ({
-    id: t.text().primaryKey(),
+    id: t.text(),
     chain: t.text().notNull(),
     transactionHash: t.text().notNull(),
     logIndex: t.integer().notNull(),
@@ -221,6 +228,7 @@ export const Log = onchainTable(
     decodedData: t.text(),
   }),
   (table) => ({
+    pk: primaryKey({ columns: [table.id, table.chain] }),
     txHashIdx: index().on(table.transactionHash),
     chainIdx: index().on(table.chain),
     addressIdx: index().on(table.address),
