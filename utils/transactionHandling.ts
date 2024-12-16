@@ -96,16 +96,7 @@ async function decodeLogWithDetails(
       console.error(`Error in event decoding for ${contractAddress}:`, error);
     }
 
-    if (decodedEvent) {
-      console.log(
-        `[DECODE] Successfully decoded event for ${contractAddress}:`,
-        {
-          eventName: decodedEvent.eventName,
-          signature: eventSignature,
-          hasArgs: !!decodedEvent.args,
-        }
-      );
-    } else {
+    if (!decodedEvent) {
       console.log(`[DECODE] Unable to decode event for ${contractAddress}:`, {
         signature: eventSignature,
         hasAbi: !!contractAbi,
