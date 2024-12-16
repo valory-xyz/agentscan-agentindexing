@@ -11,9 +11,8 @@ import {
 } from "../src/types";
 import { pool } from "./postgres";
 import { processPackageDownload } from "./ipfs";
-import { decodeEventLog } from "viem";
 
-const getAbidataRedisKey = (address: string, network: string) =>
+const getAbidataRedisKey = (address: string, network: string): string =>
   `abidata:${address.toLowerCase()}:${network}`;
 
 const TTL = 7 * 24 * 60 * 60; // 1 week
