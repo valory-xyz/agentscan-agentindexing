@@ -282,6 +282,10 @@ export async function processTransaction(
           ...log,
           decoded: decodedLog,
         });
+      } else {
+        console.log(
+          `[TX] No decoded log found for log ${i} from contract ${contractAddress} with signature ${eventSignature}`
+        );
       }
     }
 
