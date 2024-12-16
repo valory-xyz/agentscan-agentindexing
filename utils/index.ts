@@ -31,7 +31,7 @@ const axiosInstance = axios.create({
 });
 
 const redisClient = createClient({
-  url: process.env.REDIS_URL || "redis://localhost:6379",
+  url: process.env.REDIS_URL || "redis://localhost:6378",
 });
 
 redisClient.connect().catch(console.error);
@@ -334,7 +334,6 @@ export async function checkAndStoreAbi(
       if (typeof abiText === "string") {
         try {
           const parsedAbi = JSON.parse(abiText);
-
           return parsedAbi;
         } catch (e) {
           console.error(
@@ -350,35 +349,42 @@ export async function checkAndStoreAbi(
       console.error(
         `[ABI] Unsupported chain ID: ${chainId} for ${formattedAddress}`
       );
-
       throw new Error(`Unsupported chain ID: ${chainId}`);
     }
 
+    let cachedAbi = null;
     const abidataRedisKey = getAbidataRedisKey(formattedAddress, network);
+
     try {
-      const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
-      if (cachedAbidataResponse) {
-        try {
-          const parsedResponse = JSON.parse(cachedAbidataResponse);
-          if (Array.isArray(parsedResponse)) {
-            const abi_text = JSON.stringify(parsedResponse);
-            return await processAbiResponse(
-              abi_text,
-              formattedAddress,
-              chainId,
-              context,
-              blockNumber
+      if (redisClient.isReady) {
+        const cachedAbidataResponse = await redisClient.get(abidataRedisKey);
+        if (cachedAbidataResponse) {
+          try {
+            const parsedResponse = JSON.parse(cachedAbidataResponse);
+            if (Array.isArray(parsedResponse)) {
+              const abi_text = JSON.stringify(parsedResponse);
+              return await processAbiResponse(
+                abi_text,
+                formattedAddress,
+                chainId,
+                context,
+                blockNumber
+              );
+            }
+          } catch (e) {
+            console.warn(
+              `[ABI] Invalid cached ABI format for ${formattedAddress}, proceeding without cache`
             );
           }
-        } catch (e) {
-          console.error(
-            `[ABI] Invalid cached ABI format for ${formattedAddress}`
-          );
         }
+      } else {
+        console.warn(
+          `[ABI] Redis cache unavailable for ${formattedAddress}, proceeding without cache`
+        );
       }
     } catch (redisError) {
-      console.error(
-        `[ABI] Redis error for abidata cache ${formattedAddress}:`,
+      console.warn(
+        `[ABI] Redis cache unavailable for ${formattedAddress}, proceeding without cache:`,
         {
           error:
             redisError instanceof Error ? redisError.message : "Unknown error",
@@ -399,7 +405,25 @@ export async function checkAndStoreAbi(
 
       const processedAbi = JSON.stringify(response.data.abi);
 
-      await redisClient.set(abidataRedisKey, processedAbi, { EX: TTL });
+      try {
+        if (redisClient.isReady) {
+          await redisClient.set(abidataRedisKey, processedAbi, { EX: TTL });
+        } else {
+          console.warn(
+            `[ABI] Redis cache unavailable for ${formattedAddress}, proceeding without cache`
+          );
+        }
+      } catch (redisCacheError) {
+        console.warn(
+          `[ABI] Failed to cache ABI in Redis for ${formattedAddress}, continuing without caching:`,
+          {
+            error:
+              redisCacheError instanceof Error
+                ? redisCacheError.message
+                : "Unknown error",
+          }
+        );
+      }
 
       return await processAbiResponse(
         processedAbi,
@@ -415,12 +439,10 @@ export async function checkAndStoreAbi(
             error.response?.data?.message || error.message
           }`
         );
-
         return null;
       }
 
       handleFetchError(error, url, formattedAddress);
-
       return null;
     }
   } catch (error) {
@@ -428,7 +450,6 @@ export async function checkAndStoreAbi(
       error: error instanceof Error ? error.message : "Unknown error",
       stack: error instanceof Error ? error.stack : undefined,
     });
-
     return null;
   }
 }
@@ -789,13 +810,13 @@ export function isProxyContract(abi: string): boolean {
     const isServiceStakingProxy =
       Array.isArray(abiObj) &&
       abiObj.some(
-        (item) =>
+        (item: any) =>
           item.type === "function" &&
           item.name === "SERVICE_STAKING_PROXY" &&
           item.outputs?.[0]?.type === "bytes32"
       ) &&
       abiObj.some(
-        (item) =>
+        (item: any) =>
           item.type === "function" &&
           item.name === "getImplementation" &&
           item.outputs?.[0]?.type === "address"
@@ -841,10 +862,6 @@ export function isProxyContract(abi: string): boolean {
       console.log("[ABI] Detected getImplementation Pattern");
       return true;
     }
-
-    // Add the custom storage slot to PROXY_IMPLEMENTATION_SLOTS in getImplementationAddress
-    const SERVICE_STAKING_SLOT =
-      "0x9e5e169c1098011e4e5940a3ec1797686b2a8294a9b77a4c676b121bdc0ebb5e";
 
     console.log("[ABI] No proxy pattern detected");
     return false;
