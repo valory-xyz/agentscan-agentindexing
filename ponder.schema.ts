@@ -89,19 +89,17 @@ export const Agent = onchainTable(
 export const AgentInstance = onchainTable(
   "agent_instance",
   (t) => ({
-    id: t.text().notNull(),
-    chain: t.text().notNull(),
+    id: t.text(),
     agentId: t.text().notNull(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
   }),
   (table) => ({
-    pk: primaryKey({ columns: [table.id, table.chain] }),
+    pk: primaryKey({ columns: [table.id, table.agentId] }),
     idx: index().on(table.id),
     agentIdx: index().on(table.agentId),
     timestampIdx: index().on(table.timestamp),
     blockNumberIdx: index().on(table.blockNumber),
-    chainIdx: index().on(table.chain),
   })
 );
 

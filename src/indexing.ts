@@ -326,15 +326,12 @@ CONTRACT_NAMES.forEach((contractName) => {
           .values({
             id: event.args.agentInstance.toLowerCase(),
             agentId: agentId,
-            chain,
             blockNumber: Number(event.block.number),
             timestamp: Number(event.block.timestamp),
           })
           .onConflictDoUpdate({
             blockNumber: Number(event.block.number),
             timestamp: Number(event.block.timestamp),
-            chain,
-            agentId,
           });
       } catch (e) {
         console.error("Error inserting register agent instance:", e);
