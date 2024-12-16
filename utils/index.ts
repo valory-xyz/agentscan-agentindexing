@@ -192,48 +192,54 @@ export async function getImplementationAddress(
     } as const;
 
     for (const [slotType, slot] of Object.entries(PROXY_IMPLEMENTATION_SLOTS)) {
-      const implementationAddress = await context.client.getStorageAt({
-        address: formattedAddress as `0x${string}`,
-        slot: slot as `0x${string}`,
-        blockNumber: blockNumber,
-      });
-
-      if (
-        implementationAddress &&
-        implementationAddress !== "0x" &&
-        implementationAddress !== "0x0000000000000000000000000000000000000000"
-      ) {
-        const cleanAddress = "0x" + implementationAddress.slice(-40);
+      try {
+        const implementationAddress = await context.client.getStorageAt({
+          address: formattedAddress as `0x${string}`,
+          slot: slot as `0x${string}`,
+          blockNumber: blockNumber,
+        });
 
         if (
-          cleanAddress.match(/^0x[a-fA-F0-9]{40}$/) &&
-          cleanAddress.toLowerCase() !==
-            "0x0000000000000000000000000000000000000000"
+          implementationAddress &&
+          implementationAddress !== "0x" &&
+          implementationAddress !== "0x0000000000000000000000000000000000000000"
         ) {
-          console.log(
-            `[IMP] Found implementation at ${slotType} slot for ${formattedAddress}: ${cleanAddress}`
-          );
+          const cleanAddress = "0x" + implementationAddress.slice(-40);
 
-          // Fetch the implementation ABI
-          const implementationAbi = await checkAndStoreAbi(
-            cleanAddress,
-            chainId,
-            context,
-            blockNumber,
-            false // Set isImplementation to false to avoid infinite recursion
-          );
+          if (
+            cleanAddress.match(/^0x[a-fA-F0-9]{40}$/) &&
+            cleanAddress.toLowerCase() !==
+              "0x0000000000000000000000000000000000000000"
+          ) {
+            console.log(
+              `[IMP] Found implementation at ${slotType} slot for ${formattedAddress}: ${cleanAddress}`
+            );
 
-          if (implementationAbi) {
-            return {
-              address: cleanAddress,
-              abi: implementationAbi,
-            };
+            // Fetch the implementation ABI
+            const implementationAbi = await checkAndStoreAbi(
+              cleanAddress,
+              chainId,
+              context,
+              blockNumber,
+              false // Set isImplementation to false to avoid infinite recursion
+            );
+
+            if (implementationAbi) {
+              return {
+                address: cleanAddress,
+                abi: implementationAbi,
+              };
+            }
           }
         }
+      } catch (error) {
+        console.error(
+          `[IMP] Error getting implementation address from storage slot:`,
+          error
+        );
       }
     }
 
-    // Try getImplementation() as fallback
     const GET_IMPLEMENTATION_ABI = [
       {
         inputs: [],
@@ -276,7 +282,9 @@ export async function getImplementationAddress(
         }
       }
     } catch (error) {
-      console.log("[IMP] No getImplementation function found");
+      console.log("[IMP] No getImplementation function found", {
+        error,
+      });
     }
 
     console.log(`[IMP] No valid implementation found for ${formattedAddress}`);
@@ -375,10 +383,12 @@ export async function checkAndStoreAbi(
         if (cachedAbidataResponse) {
           try {
             const parsedResponse = JSON.parse(cachedAbidataResponse);
+
             if (Array.isArray(parsedResponse)) {
-              const abi_text = JSON.stringify(parsedResponse);
+              const content = JSON.stringify(parsedResponse);
+
               return await processAbiResponse(
-                abi_text,
+                content,
                 formattedAddress,
                 chainId,
                 context,
@@ -538,7 +548,6 @@ async function processAbiResponse(
   const chainName = getChainNameFromId(chainId);
   const location = getChainExplorerUrl(chainId, formattedAddress);
 
-  // Check for proxy
   if (isImplementation && isProxyContract(parsedAbi)) {
     console.log(
       `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
@@ -554,18 +563,17 @@ async function processAbiResponse(
       console.log(
         `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
       );
+      const content =
+        typeof implementation.abi === "string"
+          ? implementation.abi
+          : JSON.stringify(implementation.abi);
 
-      // Generate embeddings from the implementation ABI
-      const embeddings = await generateEmbeddingWithRetry(implementation.abi);
+      const embeddings = await generateEmbeddingWithRetry(content);
 
-      // Store the proxy contract row but with implementation's ABI content
       await storeAbiInDatabase({
         id: `${formattedAddress}-${chainName}`,
         location,
-        content:
-          typeof implementation.abi === "string"
-            ? implementation.abi
-            : JSON.stringify(implementation.abi),
+        content,
         embeddings,
         implementationAddress: implementation.address,
       });
@@ -573,12 +581,13 @@ async function processAbiResponse(
       return implementation.abi;
     }
   }
-
-  const embeddings = await generateEmbeddingWithRetry(parsedAbi);
+  const content =
+    typeof parsedAbi === "string" ? parsedAbi : JSON.stringify(parsedAbi);
+  const embeddings = await generateEmbeddingWithRetry(content);
   await storeAbiInDatabase({
     id: `${formattedAddress}-${chainName}`,
     location,
-    content: parsedAbi,
+    content,
     embeddings,
     implementationAddress: null,
   });

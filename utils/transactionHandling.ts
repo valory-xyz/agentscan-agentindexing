@@ -1,8 +1,4 @@
-import {
-  checkAndStoreAbi,
-  convertBigIntsToStrings,
-  formatTransactionLogs,
-} from ".";
+import { checkAndStoreAbi, convertBigIntsToStrings } from ".";
 
 import {
   AgentFromTransaction,
@@ -271,7 +267,11 @@ export async function processTransaction(
       } logs`
     );
 
+    console.log("About to format transaction logs...");
+
     formatTransactionLogs(hash, JSON.parse(transactionData.logs));
+
+    console.log("Finished formatting transaction logs");
 
     try {
       await context.db
@@ -315,42 +315,67 @@ export async function processTransaction(
       }
     }
 
-    // When storing logs, add more detailed logging
     console.log(
       `[TX] Starting to store ${decodedLogs.length} logs for ${hash}`
     );
 
-    for (const decodedLog of decodedLogs) {
-      try {
-        const eventName =
-          decodedLog?.decoded?.decoded?.name ||
-          decodedLog?.decoded?.name ||
-          "Unknown";
-        const contractAddress = decodedLog.address?.toLowerCase();
+    const logValues = decodedLogs.map((decodedLog) => {
+      const eventName =
+        decodedLog?.decoded?.decoded?.name ||
+        decodedLog?.decoded?.name ||
+        "Unknown";
+      const contractAddress = decodedLog.address?.toLowerCase();
 
-        await context.db.insert(Log).values({
-          id: `${hash}-${decodedLog.logIndex}`,
-          chain: context.network?.name,
-          transactionHash: hash,
-          logIndex: Number(decodedLog.logIndex),
-          address: contractAddress || "",
-          data: decodedLog?.data?.toString() || "",
-          topics: JSON.stringify(decodedLog?.topics || []),
-          blockNumber: Number(blockNumber),
-          timestamp: Number(event.block.timestamp),
-          eventName: eventName || null,
-          decodedData: decodedLog?.decoded?.decoded?.args
-            ? JSON.stringify(
-                convertBigIntsToStrings(decodedLog.decoded.decoded.args)
-              )
-            : null,
-        });
+      return {
+        id: `${hash}-${decodedLog.logIndex}`,
+        chain: context.network?.name,
+        transactionHash: hash,
+        logIndex: Number(decodedLog.logIndex),
+        address: contractAddress || "",
+        data: decodedLog?.data?.toString() || "",
+        topics: JSON.stringify(decodedLog?.topics || []),
+        blockNumber: Number(blockNumber),
+        timestamp: Number(event.block.timestamp),
+        eventName: eventName || null,
+        decodedData: decodedLog?.decoded?.decoded?.args
+          ? JSON.stringify(
+              convertBigIntsToStrings(decodedLog.decoded.decoded.args)
+            )
+          : null,
+      };
+    });
+
+    if (logValues.length > 0) {
+      try {
+        console.log(
+          `[TX] Batch inserting ${logValues.length} logs for transaction ${hash}`
+        );
+        await context.db.insert(Log).values(logValues);
+        console.log(
+          `[TX] Successfully inserted ${logValues.length} logs for ${hash}`
+        );
       } catch (error) {
-        console.error(`[TX] Error inserting log for ${hash}:`, {
-          logIndex: decodedLog.logIndex,
-          contractAddress: decodedLog.address?.toLowerCase(),
+        console.error(`[TX] Error batch inserting logs for ${hash}:`, {
           error: error instanceof Error ? error.message : "Unknown error",
+          logCount: logValues.length,
         });
+
+        // Fallback to individual inserts if batch fails
+        console.log(`[TX] Attempting individual inserts for ${hash}`);
+        for (const logValue of logValues) {
+          try {
+            await context.db.insert(Log).values(logValue);
+          } catch (individualError) {
+            console.error(`[TX] Error inserting individual log for ${hash}:`, {
+              logIndex: logValue.logIndex,
+              contractAddress: logValue.address,
+              error:
+                individualError instanceof Error
+                  ? individualError.message
+                  : "Unknown error",
+            });
+          }
+        }
       }
     }
 
@@ -368,3 +393,26 @@ export async function processTransaction(
     });
   }
 }
+
+export const formatTransactionLogs = (hash: string, logs: any[]) => {
+  console.log("\n=== Transaction Logs Format ===");
+  console.log(`Transaction Hash: ${hash}`);
+  console.log(`Total Logs: ${logs.length}`);
+
+  logs.forEach((log, index) => {
+    console.log(`\nLog #${index + 1}:`);
+    console.log("Contract Address:", log.decoded.contractAddress);
+    console.log("Event Name:", log.decoded.decoded?.name || "Unknown");
+
+    if (log.decoded.decoded?.args) {
+      console.log(
+        "Arguments:",
+        JSON.stringify(log.decoded.decoded.args, null, 2)
+      );
+    }
+
+    console.log("Event Signature:", log.decoded.eventSignature);
+  });
+
+  console.log("\n=== End Transaction Logs ===\n");
+};
