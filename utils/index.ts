@@ -9,8 +9,8 @@ import {
   MetadataJson,
   TokenTransferData,
 } from "../src/types";
-import { pool } from "./postgres";
-import { processPackageDownload } from "./ipfs";
+import { executeQuery, pool } from "./postgres";
+import { dbQueue, processPackageDownload, safeQueueOperation } from "./ipfs";
 
 const getAbidataRedisKey = (address: string, network: string): string =>
   `abidata:${address.toLowerCase()}:${network}`;
@@ -496,7 +496,7 @@ async function processAbiResponse(
         `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
       );
       try {
-        const embedding = await generateEmbeddingWithRetry(abi);
+        const embeddings = await generateEmbeddingWithRetry(abi);
         const chainName = getChainNameFromId(chainId);
         const location = getChainExplorerUrl(chainId, formattedAddress);
 
@@ -504,7 +504,7 @@ async function processAbiResponse(
           id: `${formattedAddress}-${chainName}`,
           location,
           content: abi,
-          embedding,
+          embeddings,
           implementationAddress: implementation?.address || null,
         });
 
@@ -520,7 +520,7 @@ async function processAbiResponse(
     return abi;
   }
   console.log(`[ABI] No proxy detected for ${formattedAddress}`, typeof abi);
-  const embedding = await generateEmbeddingWithRetry(abi);
+  const embeddings = await generateEmbeddingWithRetry(abi);
   const chainName = getChainNameFromId(chainId);
   const location = getChainExplorerUrl(chainId, formattedAddress);
 
@@ -528,7 +528,7 @@ async function processAbiResponse(
     id: `${formattedAddress}-${chainName}`,
     location,
     content: abi,
-    embedding,
+    embeddings,
     implementationAddress: null,
   });
 
@@ -539,54 +539,114 @@ async function storeAbiInDatabase({
   id,
   location,
   content,
-  embedding,
+  embeddings,
   implementationAddress = null as string | null,
 }: {
   id: string;
   location: string;
   content: string;
-  embedding: string;
+  embeddings: string | string[];
   implementationAddress: string | null;
 }) {
   try {
-    const insertQuery = `
-      INSERT INTO context_embeddings (
-        id,
-        company_id,
-        type,
-        location,
-        content,
-        name,
-        embedding,
-        is_chunk,
-        original_location
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      ON CONFLICT (id, type, location) 
-      DO UPDATE SET 
-        content = EXCLUDED.content,
-        embedding = EXCLUDED.embedding,
-        updated_at = CURRENT_TIMESTAMP
-      RETURNING *
-    `;
+    const promise = await safeQueueOperation(async () => {
+      return await dbQueue.add(async () => {
+        if (Array.isArray(embeddings)) {
+          const results = await Promise.all(
+            embeddings.map(async (embedding, index) => {
+              const result = await executeQuery(async (client: any) => {
+                return await client.query(
+                  `INSERT INTO context_embeddings (
+                    id,
+                    company_id,
+                    type,
+                    location,
+                    original_location,
+                    content,
+                    name,
+                    embedding,
+                    is_chunk,
+                    created_at,
+                    updated_at
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())  
+                  ON CONFLICT (id, type, location) DO UPDATE SET
+                    content = EXCLUDED.content,
+                    embedding = EXCLUDED.embedding,
+                    updated_at = NOW()`,
+                  [
+                    `${id}-${index}`,
+                    "olas",
+                    "abi",
+                    location,
+                    implementationAddress
+                      ? getChainExplorerUrl(
+                          getChainId(id.split("-")[1] || "mainnet"),
+                          implementationAddress
+                        )
+                      : null,
+                    content,
+                    id.split("-")[0],
+                    embedding,
+                    true,
+                  ]
+                );
+              });
+              return result.rows.length > 0;
+            })
+          );
+          return results.every(Boolean);
+        } else {
+          const result = await executeQuery(async (client: any) => {
+            return await client.query(
+              `INSERT INTO context_embeddings (
+                id,
+                company_id,
+                type,
+                location,
+                original_location,
+                content,
+                name,
+                embedding,
+                is_chunk,
+                created_at,
+                updated_at
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())  
+              ON CONFLICT (id, type, location) DO UPDATE SET
+                content = EXCLUDED.content,
+                embedding = EXCLUDED.embedding,
+                updated_at = NOW()`,
+              [
+                id,
+                "olas",
+                "abi",
+                location,
+                implementationAddress
+                  ? getChainExplorerUrl(
+                      getChainId(id.split("-")[1] || "mainnet"),
+                      implementationAddress
+                    )
+                  : null,
+                content,
+                id.split("-")[0],
+                embeddings,
+                false,
+              ]
+            );
+          });
+          return result.rows.length > 0;
+        }
+      });
+    });
 
-    const result = await pool.query(insertQuery, [
-      id,
-      "olas",
-      "abi",
-      location,
-      content,
-      id.split("-")[0],
-      embedding,
-      false,
-      implementationAddress
-        ? getChainExplorerUrl(
-            getChainId(id.split("-")[1] || "mainnet"),
-            implementationAddress
-          )
-        : null,
-    ]);
+    if (promise) {
+      console.log(
+        `[ABI] Successfully stored ${
+          Array.isArray(embeddings) ? embeddings.length + " chunks" : "ABI"
+        } for ${id} in database`
+      );
+    }
 
-    return result.rows[0];
+    return promise;
   } catch (error) {
     console.error(`[ABI] Database error storing ABI for ${id}:`, {
       error: error instanceof Error ? error.message : "Unknown error",
@@ -595,6 +655,8 @@ async function storeAbiInDatabase({
         id,
         type: "abi",
         location,
+        isChunked: Array.isArray(embeddings),
+        chunksCount: Array.isArray(embeddings) ? embeddings.length : 0,
       },
     });
     throw error;

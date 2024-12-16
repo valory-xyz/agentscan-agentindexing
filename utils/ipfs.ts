@@ -166,7 +166,7 @@ const DB_RETRY_CONFIG = {
 };
 
 // Enhanced error boundary wrapper with retries
-async function safeQueueOperation<T>(
+export async function safeQueueOperation<T>(
   operation: () => Promise<T>,
   attempt = 1
 ): Promise<T | null> {

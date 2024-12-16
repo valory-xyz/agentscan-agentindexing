@@ -15,7 +15,7 @@ interface RetryOptions {
 }
 
 // Add these constants at the top of the file
-export const MAX_TOKENS = 2000; // Significantly reduced from 4000
+export const MAX_TOKENS = 3500; // Significantly reduced from 4000
 export const TOKEN_OVERLAP = 25; // Reduced from 50
 export const MIN_CHUNK_LENGTH = 100;
 export const ABSOLUTE_MAX_TOKENS = 7000; // Reduced from 8000
@@ -35,7 +35,7 @@ export function estimateTokens(text: string | undefined): number {
 // Content-specific token limits
 const TOKEN_LIMITS = {
   ABI: {
-    MAX_TOKENS: 1000,
+    MAX_TOKENS: 3500,
     TOKEN_OVERLAP: 20,
     MIN_CHUNK_LENGTH: 50,
     ABSOLUTE_MAX: 6000,
