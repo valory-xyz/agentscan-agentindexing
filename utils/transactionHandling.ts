@@ -174,9 +174,6 @@ export async function processTransaction(
       let decodedLog = null;
 
       if (eventSignature === SIGNATURES.ERC20.TRANSFER_EVENT) {
-        console.log(
-          `[TX] Detected ERC20 Transfer event in log ${i} from contract ${contractAddress}`
-        );
         decodedLog = {
           contractAddress: log.address,
           eventSignature,

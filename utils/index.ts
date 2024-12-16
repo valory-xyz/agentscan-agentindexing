@@ -254,10 +254,6 @@ async function tryGetImplementationFromSlot(
     const cleanAddress = cleanImplementationAddress(implementationAddress);
     if (!cleanAddress) return null;
 
-    console.log(
-      `[IMP] Found implementation at ${slotDescription} for ${formattedAddress}: ${cleanAddress}`
-    );
-
     const implementationAbi = await checkAndStoreAbi(
       cleanAddress,
       chainId,
@@ -385,7 +381,6 @@ export async function getImplementationAddress(
       blockNumber,
       false
     );
-    console.log(`[IMP] Contract ABI: ${contractAbi}`);
 
     if (!contractAbi) return null;
 
@@ -521,9 +516,6 @@ export async function checkAndStoreAbi(
         try {
           const parsedAbi = JSON.parse(abiText);
           if (isImplementation && isProxyContract(parsedAbi)) {
-            console.log(
-              `[ABI] Found cached proxy ABI for ${formattedAddress}, fetching implementation`
-            );
             const implementation = await getImplementationAddress(
               formattedAddress,
               chainId,
@@ -531,9 +523,6 @@ export async function checkAndStoreAbi(
               blockNumber
             );
             if (implementation?.address && implementation?.abi) {
-              console.log(
-                `[ABI] Using cached implementation at ${implementation.address} for ${formattedAddress}`
-              );
               return implementation.abi;
             }
           }
@@ -729,9 +718,6 @@ async function processAbiResponse(
   const location = getChainExplorerUrl(chainId, formattedAddress);
 
   if (isImplementation && isProxyContract(parsedAbi)) {
-    console.log(
-      `[ABI] Detected proxy contract at ${formattedAddress}, fetching implementation`
-    );
     const implementation = await getImplementationAddress(
       formattedAddress,
       chainId,
@@ -740,9 +726,6 @@ async function processAbiResponse(
     );
 
     if (implementation?.address && implementation?.abi) {
-      console.log(
-        `[ABI] Found implementation at ${implementation.address} for ${formattedAddress}`
-      );
       const content =
         typeof implementation.abi === "string"
           ? implementation.abi
@@ -831,13 +814,7 @@ async function storeAbiInDatabase({
                     true,
                   ]
                 );
-                console.log(
-                  `[ABI] Chunk ${index}: ${
-                    queryResult.rows.length > 0
-                      ? "Updated/Inserted"
-                      : "No changes"
-                  } for ${id}`
-                );
+
                 return queryResult;
               });
               return result.rows.length > 0;
@@ -882,11 +859,7 @@ async function storeAbiInDatabase({
                 false,
               ]
             );
-            console.log(
-              `[ABI] ${
-                queryResult.rows.length > 0 ? "Updated/Inserted" : "No changes"
-              } for ${id}`
-            );
+
             return queryResult;
           });
           return result.rows.length > 0;
@@ -895,11 +868,6 @@ async function storeAbiInDatabase({
     });
 
     if (promise) {
-      console.log(
-        `[ABI] Successfully stored ${
-          Array.isArray(embeddings) ? embeddings.length + " chunks" : "ABI"
-        } for ${id} in database`
-      );
     } else {
       console.log(`[ABI] No changes made to database for ${id}`);
     }

@@ -83,11 +83,9 @@ export function splitTextIntoChunks(
   // Determine content type and get appropriate limits
   let limits = TOKEN_LIMITS.DEFAULT;
   if (isABI(text)) {
-    console.log("Detected ABI content, using specialized splitting...");
     limits = TOKEN_LIMITS.ABI;
     return splitABIContent(text, limits);
   } else if (/[{}\[\]()]/g.test(text)) {
-    console.log("Detected code content, using code-specific splitting...");
     limits = TOKEN_LIMITS.CODE;
   }
 
@@ -260,18 +258,12 @@ export async function generateEmbeddingWithRetry(
 
   // If text might be too long, split it before attempting embedding
   if (estimatedTokens > MAX_TOKENS) {
-    console.log("Text too long for single embedding, splitting into chunks...");
     const chunks = splitTextIntoChunks(text, MAX_TOKENS);
     console.log(`Split into ${chunks.length} chunks`);
 
     const embeddings: any[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
-      console.log(
-        `Processing chunk ${i + 1}/${
-          chunks.length
-        } (estimated tokens: ${estimateTokens(chunk)})`
-      );
 
       try {
         // Double-check chunk size
