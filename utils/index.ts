@@ -23,7 +23,7 @@ const INITIAL_TIMEOUT = 30000; // 30 seconds
 const MAX_TIMEOUT = 60000; // 60 seconds
 const TIMEOUT_MULTIPLIER = 1.5;
 
-const MAX_RETRIES = 100;
+const MAX_RETRIES = 150;
 
 const axiosInstance = axios.create({
   timeout: 5000,
@@ -694,6 +694,17 @@ export const fetchAndTransformMetadata = async (
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const { data } = await axiosInstance.get<any>(metadataURI);
+
+      let codeUri = data?.code_uri || data?.codeUri || null;
+      let image = data?.image || null;
+
+      if (codeUri && codeUri.startsWith("ipfs://")) {
+        codeUri = transformIpfsUrl(codeUri);
+      }
+
+      if (image && image.startsWith("ipfs://")) {
+        image = transformIpfsUrl(image);
+      }
 
       const metadataJson = {
         name: data.name || null,
