@@ -555,7 +555,7 @@ async function storeAbiInDatabase({
           const results = await Promise.all(
             embeddings.map(async (embedding, index) => {
               const result = await executeQuery(async (client: any) => {
-                return await client.query(
+                const queryResult = await client.query(
                   `INSERT INTO context_embeddings (
                     id,
                     company_id,
@@ -572,7 +572,8 @@ async function storeAbiInDatabase({
                   ON CONFLICT (id, type, location) DO UPDATE SET
                     content = EXCLUDED.content,
                     embedding = EXCLUDED.embedding,
-                    updated_at = NOW()`,
+                    updated_at = NOW()
+                  RETURNING id`,
                   [
                     `${id}-${index}`,
                     "olas",
@@ -590,6 +591,14 @@ async function storeAbiInDatabase({
                     true,
                   ]
                 );
+                console.log(
+                  `[ABI] Chunk ${index}: ${
+                    queryResult.rows.length > 0
+                      ? "Updated/Inserted"
+                      : "No changes"
+                  } for ${id}`
+                );
+                return queryResult;
               });
               return result.rows.length > 0;
             })
@@ -597,7 +606,7 @@ async function storeAbiInDatabase({
           return results.every(Boolean);
         } else {
           const result = await executeQuery(async (client: any) => {
-            return await client.query(
+            const queryResult = await client.query(
               `INSERT INTO context_embeddings (
                 id,
                 company_id,
@@ -614,7 +623,8 @@ async function storeAbiInDatabase({
               ON CONFLICT (id, type, location) DO UPDATE SET
                 content = EXCLUDED.content,
                 embedding = EXCLUDED.embedding,
-                updated_at = NOW()`,
+                updated_at = NOW()
+              RETURNING id`,
               [
                 id,
                 "olas",
@@ -632,6 +642,12 @@ async function storeAbiInDatabase({
                 false,
               ]
             );
+            console.log(
+              `[ABI] ${
+                queryResult.rows.length > 0 ? "Updated/Inserted" : "No changes"
+              } for ${id}`
+            );
+            return queryResult;
           });
           return result.rows.length > 0;
         }
@@ -644,6 +660,8 @@ async function storeAbiInDatabase({
           Array.isArray(embeddings) ? embeddings.length + " chunks" : "ABI"
         } for ${id} in database`
       );
+    } else {
+      console.log(`[ABI] No changes made to database for ${id}`);
     }
 
     return promise;
