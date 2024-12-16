@@ -18,8 +18,12 @@ async function decodeLogWithDetails(
   context: any,
   blockNumber: bigint
 ) {
-  const contractAddress = log.address;
+  const contractAddress = log.address?.toLowerCase();
   const eventSignature = log.topics[0];
+
+  console.log(
+    `[DECODE] Starting log decode for contract ${contractAddress} with signature ${eventSignature}`
+  );
 
   try {
     const contractAbi = await checkAndStoreAbi(
@@ -92,7 +96,24 @@ async function decodeLogWithDetails(
       console.error(`Error in event decoding for ${contractAddress}:`, error);
     }
 
-    return {
+    if (decodedEvent) {
+      console.log(
+        `[DECODE] Successfully decoded event for ${contractAddress}:`,
+        {
+          eventName: decodedEvent.eventName,
+          signature: eventSignature,
+          hasArgs: !!decodedEvent.args,
+        }
+      );
+    } else {
+      console.log(`[DECODE] Unable to decode event for ${contractAddress}:`, {
+        signature: eventSignature,
+        hasAbi: !!contractAbi,
+        topics: log.topics,
+      });
+    }
+
+    const result = {
       contractAddress,
       eventSignature,
       decoded: decodedEvent
@@ -105,8 +126,20 @@ async function decodeLogWithDetails(
       rawData: log.data,
       rawTopics: log.topics,
     };
+
+    console.log(`[DECODE] Decode result for ${contractAddress}:`, {
+      success: !!decodedEvent,
+      eventName: decodedEvent?.eventName || "Unknown",
+      hasArgs: !!decodedEvent?.args,
+    });
+
+    return result;
   } catch (error: any) {
-    console.error(`Failed to decode log for ${contractAddress}:`, error);
+    console.error(`[DECODE] Failed to decode log for ${contractAddress}:`, {
+      error: error.message,
+      signature: eventSignature,
+      stack: error.stack,
+    });
     return {
       contractAddress,
       eventSignature,
@@ -124,6 +157,8 @@ export async function processTransaction(
   context: Context,
   isFromTransaction: boolean
 ) {
+  console.log(`[TX] Starting transaction processing for hash: ${hash}`);
+
   try {
     const fromAddress = event.transaction?.from?.toString() || "";
     const toAddress = event.transaction?.to?.toString() || "";
@@ -147,20 +182,31 @@ export async function processTransaction(
     const logs = receipt?.logs || [];
 
     const decodedLogs = [] as any[];
+    console.log(
+      `[TX] Starting to process ${logs.length} logs for transaction ${hash}`
+    );
 
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i];
+      const contractAddress = log?.address?.toLowerCase();
+      console.log(
+        `[TX] Processing log ${i + 1}/${
+          logs.length
+        } for ${hash} from contract ${contractAddress}`
+      );
 
       if (!log) {
-        console.error(`Log ${i} is undefined for transaction ${hash}`);
+        console.error(`[TX] Log ${i} is undefined for transaction ${hash}`);
         continue;
       }
 
       const eventSignature = log?.topics[0];
-
       let decodedLog = null;
 
       if (eventSignature === SIGNATURES.ERC20.TRANSFER_EVENT) {
+        console.log(
+          `[TX] Detected ERC20 Transfer event in log ${i} from contract ${contractAddress}`
+        );
         decodedLog = {
           contractAddress: log.address,
           eventSignature,
@@ -177,6 +223,9 @@ export async function processTransaction(
           rawTopics: log.topics,
         };
       } else if (eventSignature === SIGNATURES.EVENTS.FPMM_BUY) {
+        console.log(
+          `[TX] Detected FPMM Buy event in log ${i} from contract ${contractAddress}`
+        );
         const data = log?.data?.slice(2) || "";
         const investmentAmount = data.slice(0, 64);
         const feeAmount = data.slice(64, 128);
@@ -202,21 +251,59 @@ export async function processTransaction(
           rawTopics: log?.topics || [],
         };
       } else {
-        decodedLog = await decodeLogWithDetails(
+        console.log(
+          `[TX] Using generic decoder for log ${i} from contract ${contractAddress}`
+        );
+        decodedLog = (await decodeLogWithDetails(
           log,
           chainId,
           context,
           blockNumber
-        );
+        )) as any;
       }
 
       if (decodedLog) {
+        const eventName =
+          decodedLog.decoded?.name ||
+          decodedLog.decoded?.decoded?.name ||
+          "Unknown";
+
+        if (eventName === "Unknown") {
+          console.log(
+            `[TX] Unknown event in log ${i} from contract ${contractAddress} with signature ${eventSignature}`
+          );
+        } else {
+          console.log(
+            `[TX] Decoded ${eventName} event in log ${i} from contract ${contractAddress}`
+          );
+        }
+
         decodedLogs.push({
           ...log,
           decoded: decodedLog,
         });
       }
     }
+
+    // After processing all logs, add a summary
+    console.log(`[TX] Log summary for ${hash}:`, {
+      totalLogs: decodedLogs.length,
+      events: decodedLogs.map((log, index) => {
+        const eventName =
+          log.decoded?.decoded?.name || log.decoded?.name || "Unknown";
+        const contractAddress = log.address?.toLowerCase();
+        return {
+          index,
+          eventName,
+          contractAddress,
+          signature: log.decoded?.eventSignature || log.topics?.[0],
+          isUnknown: eventName === "Unknown",
+          args: log.decoded?.decoded?.args
+            ? convertBigIntsToStrings(log.decoded.decoded.args)
+            : null,
+        };
+      }),
+    });
 
     const transactionData = convertBigIntsToStrings({
       hash: event.transaction.hash,
@@ -295,8 +382,26 @@ export async function processTransaction(
       }
     }
 
+    // When storing logs, add more detailed logging
+    console.log(
+      `[TX] Starting to store ${decodedLogs.length} logs for ${hash}`
+    );
     for (const decodedLog of decodedLogs) {
       try {
+        const eventName =
+          decodedLog?.decoded?.decoded?.name ||
+          decodedLog?.decoded?.name ||
+          "Unknown";
+        const contractAddress = decodedLog.address?.toLowerCase();
+
+        console.log(`[TX] Storing log:`, {
+          transactionHash: hash,
+          logIndex: decodedLog.logIndex,
+          eventName,
+          contractAddress,
+          isUnknown: eventName === "Unknown",
+        });
+
         await context.db.insert(Log).values({
           id: `${hash}-${decodedLog.logIndex}`,
           chain: context.network?.name,
@@ -314,13 +419,30 @@ export async function processTransaction(
               )
             : null,
         });
+
+        console.log(
+          `[TX] Successfully stored ${eventName} log ${decodedLog.logIndex} for ${hash}`
+        );
       } catch (error) {
-        console.error(`Error inserting log for ${hash}:`, error);
+        console.error(`[TX] Error inserting log for ${hash}:`, {
+          logIndex: decodedLog.logIndex,
+          contractAddress: decodedLog.address?.toLowerCase(),
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
       }
     }
 
     return transactionData;
   } catch (error) {
-    console.error("Error processing transaction:", error);
+    console.error("[TX] Error processing transaction:", {
+      hash,
+      error:
+        error instanceof Error
+          ? {
+              message: error.message,
+              stack: error.stack,
+            }
+          : "Unknown error",
+    });
   }
 }
