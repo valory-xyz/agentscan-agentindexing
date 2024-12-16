@@ -5,7 +5,6 @@ import {
   AgentToTransaction,
   Log,
   Transaction,
-  Transfer,
 } from "ponder:schema";
 
 import { decodeEventLog } from "viem";
@@ -216,35 +215,6 @@ export async function processTransaction(
           ...log,
           decoded: decodedLog,
         });
-
-        if (decodedLog.decoded?.name === "Transfer") {
-          const args = decodedLog.decoded.args as {
-            from: string;
-            to: string;
-            value: bigint;
-          };
-          const transfer = {
-            id: `${hash}-${i}`,
-            hash,
-            blockNumber: Number(blockNumber),
-            timestamp: Number(event.block.timestamp),
-            from: args.from,
-            to: args.to,
-            value: args.value.toString(),
-            tokenAddress: log?.address,
-          };
-
-          try {
-            await context.db
-              .insert(Transfer)
-              .values({ ...transfer, chain: context.network?.name })
-              .onConflictDoUpdate({
-                ...transfer,
-              });
-          } catch (error) {
-            console.error(`Error inserting Transfer for ${hash}:`, error);
-          }
-        }
       }
     }
 

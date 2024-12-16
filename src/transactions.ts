@@ -1,5 +1,5 @@
 import { ponder } from "ponder:registry";
-import { Transfer } from "ponder:schema";
+
 import {
   checkAndStoreAbi,
   convertBigIntsToStrings,
