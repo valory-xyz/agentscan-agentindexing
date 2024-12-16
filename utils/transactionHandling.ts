@@ -1,4 +1,8 @@
-import { checkAndStoreAbi, convertBigIntsToStrings } from ".";
+import {
+  checkAndStoreAbi,
+  convertBigIntsToStrings,
+  formatTransactionLogs,
+} from ".";
 
 import {
   AgentFromTransaction,
@@ -372,23 +376,7 @@ export async function processTransaction(
       }
     }
 
-    // Add this after processing all logs
-    console.log(
-      `[TX] Events for ${hash}:\n${decodedLogs
-        .map((log) => {
-          const eventName =
-            log.decoded?.decoded?.name || log.decoded?.name || "Unknown";
-          const args = log.decoded?.decoded?.args || log.decoded?.args;
-
-          if (eventName === "Unknown") {
-            return `Unknown (contract: ${log.address?.toLowerCase()})`;
-          }
-
-          const argsString = args ? ` [${JSON.stringify(args)}]` : "";
-          return `${eventName}${argsString}`;
-        })
-        .join(", ")}`
-    );
+    formatTransactionLogs(hash, decodedLogs);
 
     return transactionData;
   } catch (error) {

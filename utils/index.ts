@@ -1074,3 +1074,22 @@ async function fetchWithRetry(
     }`
   );
 }
+
+export const formatTransactionLogs = (
+  hash: string,
+  decodedLogs: any[]
+): void => {
+  const logNames = decodedLogs.map((log) => {
+    const eventName =
+      log.decoded?.decoded?.name || log.decoded?.name || "Unknown";
+    const contractAddress = log.address?.toLowerCase();
+    const signature = log.decoded?.eventSignature || log.topics?.[0];
+
+    if (eventName === "Unknown") {
+      return `Unknown(contract: ${contractAddress}, signature: ${signature})`;
+    }
+    return eventName;
+  });
+
+  console.log(`Log Names for ${hash}: ${logNames.join(", ")}`);
+};
