@@ -246,21 +246,6 @@ export async function processTransaction(
       }
 
       if (decodedLog) {
-        const eventName =
-          decodedLog.decoded?.name ||
-          decodedLog.decoded?.decoded?.name ||
-          "Unknown";
-
-        if (eventName === "Unknown") {
-          console.log(
-            `[TX] Unknown event in log ${i} from contract ${contractAddress} with signature ${eventSignature}`
-          );
-        } else {
-          console.log(
-            `[TX] Decoded ${eventName} event in log ${i} from contract ${contractAddress}`
-          );
-        }
-
         decodedLogs.push({
           ...log,
           decoded: decodedLog,

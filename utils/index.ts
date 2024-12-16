@@ -576,12 +576,11 @@ async function processAbiResponse(
     }
   }
 
-  // For non-proxy contracts, store as normal
   const embeddings = await generateEmbeddingWithRetry(parsedAbi);
   await storeAbiInDatabase({
     id: `${formattedAddress}-${chainName}`,
     location,
-    content: parsedAbi, // Use parsed ABI directly
+    content: parsedAbi,
     embeddings,
     implementationAddress: null,
   });
