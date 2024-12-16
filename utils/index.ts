@@ -159,6 +159,8 @@ export async function getImplementationAddress(
   blockNumber: bigint
 ): Promise<ImplementationResult | null> {
   try {
+    console.log(`[IMP] Starting implementation lookup for ${contractAddress}`);
+
     if (
       !contractAddress ||
       contractAddress === "0x" ||
@@ -175,6 +177,10 @@ export async function getImplementationAddress(
       return null;
     }
 
+    // First try getImplementation()
+    console.log(
+      `[IMP] Attempting getImplementation() call for ${formattedAddress}`
+    );
     const GET_IMPLEMENTATION_ABI = [
       {
         inputs: [],
@@ -209,10 +215,7 @@ export async function getImplementationAddress(
         );
 
         if (implementationAbi) {
-          return {
-            address: implementationAddress,
-            abi: implementationAbi,
-          };
+          return { address: implementationAddress, abi: implementationAbi };
         }
       }
     } catch (error) {
@@ -221,6 +224,8 @@ export async function getImplementationAddress(
       );
     }
 
+    // Try storage slots
+    console.log(`[IMP] Checking storage slots for ${formattedAddress}`);
     const PROXY_IMPLEMENTATION_SLOTS = {
       EIP1967:
         "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
@@ -237,6 +242,8 @@ export async function getImplementationAddress(
     } as const;
 
     for (const [slotType, slot] of Object.entries(PROXY_IMPLEMENTATION_SLOTS)) {
+      console.log(`[IMP] Checking ${slotType} slot for ${formattedAddress}`);
+
       const implementationAddress = await context.client.getStorageAt({
         address: formattedAddress as `0x${string}`,
         slot: slot as `0x${string}`,
@@ -267,10 +274,7 @@ export async function getImplementationAddress(
           );
 
           if (implementationAbi) {
-            return {
-              address: cleanAddress,
-              abi: implementationAbi,
-            };
+            return { address: cleanAddress, abi: implementationAbi };
           }
         }
       }
@@ -279,7 +283,11 @@ export async function getImplementationAddress(
     console.log(`[IMP] No valid implementation found for ${formattedAddress}`);
     return null;
   } catch (error) {
-    console.error(`[IMP] Error getting implementation address:`, error);
+    console.error(`[IMP] Error getting implementation address:`, {
+      contract: contractAddress,
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return null;
   }
 }
@@ -775,20 +783,23 @@ export function isProxyContract(abi: string): boolean {
   try {
     const abiObj = JSON.parse(abi);
 
-    // Specific check for Gnosis Safe Proxy pattern
+    // Gnosis Safe Proxy pattern - checks for singleton storage slot
     const isGnosisSafeProxy =
       Array.isArray(abiObj) &&
-      abiObj.length === 2 &&
-      abiObj[0]?.type === "constructor" &&
-      abiObj[0]?.inputs?.length === 1 &&
-      abiObj[0]?.inputs[0]?.type === "address" &&
-      abiObj[0]?.inputs[0]?.internalType === "address" &&
-      abiObj[0]?.inputs[0]?.name === "_singleton" &&
-      abiObj[1]?.type === "fallback" &&
-      abiObj[1]?.stateMutability === "payable";
+      abiObj.some(
+        (item) => item.type === "fallback" && item.stateMutability === "payable"
+      ) &&
+      abiObj.some(
+        (item) =>
+          item.type === "constructor" &&
+          item.inputs?.length === 1 &&
+          item.inputs[0].type === "address" &&
+          (item.inputs[0].name === "_singleton" ||
+            item.inputs[0].name === "singleton")
+      );
 
     if (isGnosisSafeProxy) {
-      console.log("Detected Gnosis Safe Proxy Pattern");
+      console.log("[ABI] Detected Gnosis Safe Proxy Pattern");
       return true;
     }
 
@@ -808,11 +819,10 @@ export function isProxyContract(abi: string): boolean {
       return true;
     }
 
-    // If none of the patterns match
     console.log("No proxy pattern detected");
     return false;
   } catch (error) {
-    console.error("Error checking proxy status:", {
+    console.error("[ABI] Error checking proxy status:", {
       error: error instanceof Error ? error.message : "Unknown error",
       abi,
     });
