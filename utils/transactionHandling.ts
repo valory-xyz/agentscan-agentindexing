@@ -157,8 +157,6 @@ export async function processTransaction(
   context: Context,
   isFromTransaction: boolean
 ) {
-  console.log(`[TX] Starting transaction processing for hash: ${hash}`);
-
   try {
     const fromAddress = event.transaction?.from?.toString() || "";
     const toAddress = event.transaction?.to?.toString() || "";
@@ -178,6 +176,8 @@ export async function processTransaction(
     const receipt = await context.client.getTransactionReceipt({
       hash: hash as `0x${string}`,
     });
+
+    console.log(`[TX] Receipt for ${hash}:`, receipt);
 
     const logs = receipt?.logs || [];
 
