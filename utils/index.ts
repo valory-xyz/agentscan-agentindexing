@@ -152,116 +152,305 @@ export const fetchAndEmbedMetadata = async (
   return await fetchAndTransformMetadata(configHash, maxRetries, configInfo);
 };
 
+interface ProxyImplementation {
+  address: string;
+  abi: any;
+}
+
+type ProxyPattern = {
+  name: string;
+  slot: `0x${string}`;
+};
+
+const PROXY_PATTERNS: Record<string, ProxyPattern> = {
+  EIP1967: {
+    name: "EIP-1967 Proxy",
+    slot: "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+  },
+  EIP1967_BEACON: {
+    name: "EIP-1967 Beacon",
+    slot: "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+  },
+  SIMPLE_PROXY: {
+    name: "Simple Proxy",
+    slot: "0x0000000000000000000000000000000000000000000000000000000000000000",
+  },
+  GNOSIS_SAFE: {
+    name: "Gnosis Safe Proxy",
+    slot: "0xa619486e6a192c629d6e5c69ba3efd8478c19a6022185a277f24bc5b6e1060f9",
+  },
+  OPENZEPPELIN: {
+    name: "OpenZeppelin Proxy",
+    slot: "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+  },
+} as const;
+
+const isValidAddress = (address: string): boolean => {
+  return Boolean(
+    address &&
+      address !== "0x" &&
+      address.toLowerCase() !== "0x0000000000000000000000000000000000000000" &&
+      /^0x[a-fA-F0-9]{40}$/.test(address.toLowerCase())
+  );
+};
+
+const cleanImplementationAddress = (rawAddress: string): string | null => {
+  const cleanAddress = "0x" + rawAddress.slice(-40);
+  return isValidAddress(cleanAddress) ? cleanAddress : null;
+};
+
+const isBasicProxy = (abi: any[]): boolean => {
+  return (
+    abi.length <= 2 &&
+    abi.some(
+      (item) =>
+        item.type === "constructor" &&
+        item.inputs?.length === 1 &&
+        item.inputs[0].type === "address" &&
+        (item.inputs[0].name === "_singleton" ||
+          item.inputs[0].name === "singleton")
+    ) &&
+    abi.some((item) => item.type === "fallback")
+  );
+};
+
+const hasCustomProxyFunction = (abi: any[]): boolean => {
+  return abi.some(
+    (item) =>
+      item.type === "function" &&
+      item.name.endsWith("_PROXY") &&
+      item.outputs?.length === 1 &&
+      item.outputs[0].type === "bytes32" &&
+      item.stateMutability === "view"
+  );
+};
+
+const findCustomProxyFunctions = (abi: any[]) => {
+  return abi.filter(
+    (item) =>
+      item.type === "function" &&
+      item.name.endsWith("_PROXY") &&
+      item.outputs?.length === 1 &&
+      item.outputs[0].type === "bytes32" &&
+      item.stateMutability === "view"
+  );
+};
+
+async function tryGetImplementationFromSlot(
+  context: any,
+  formattedAddress: string,
+  slot: `0x${string}`,
+  blockNumber: bigint,
+  chainId: number,
+  slotDescription: string
+): Promise<ProxyImplementation | null> {
+  try {
+    const implementationAddress = await context.client.getStorageAt({
+      address: formattedAddress as `0x${string}`,
+      slot,
+      blockNumber,
+    });
+
+    const cleanAddress = cleanImplementationAddress(implementationAddress);
+    if (!cleanAddress) return null;
+
+    console.log(
+      `[IMP] Found implementation at ${slotDescription} for ${formattedAddress}: ${cleanAddress}`
+    );
+
+    const implementationAbi = await checkAndStoreAbi(
+      cleanAddress,
+      chainId,
+      context,
+      blockNumber,
+      false
+    );
+
+    return implementationAbi
+      ? { address: cleanAddress, abi: implementationAbi }
+      : null;
+  } catch (error) {
+    console.error(`[IMP] Error reading from ${slotDescription}:`, error);
+    return null;
+  }
+}
+
+async function tryGetImplementationFromCustomProxy(
+  context: any,
+  formattedAddress: string,
+  proxyFunction: any,
+  blockNumber: bigint,
+  chainId: number
+): Promise<ProxyImplementation | null> {
+  try {
+    console.log(
+      `[IMP] Found proxy storage position function: ${proxyFunction.name}`
+    );
+
+    const storageSlot = await context.client.readContract({
+      address: formattedAddress as `0x${string}`,
+      abi: [proxyFunction],
+      functionName: proxyFunction.name,
+      blockNumber,
+    });
+
+    if (!storageSlot) return null;
+
+    console.log(
+      `[IMP] Got storage slot from ${proxyFunction.name}: ${storageSlot}`
+    );
+    return await tryGetImplementationFromSlot(
+      context,
+      formattedAddress,
+      storageSlot as `0x${string}`,
+      blockNumber,
+      chainId,
+      `custom slot (${proxyFunction.name})`
+    );
+  } catch (error) {
+    console.log(`[IMP] Error reading ${proxyFunction.name}:`, error);
+    return null;
+  }
+}
+
+export function isProxyContract(abi: any): boolean {
+  try {
+    const abiObj = typeof abi === "string" ? JSON.parse(abi) : abi;
+
+    if (!Array.isArray(abiObj)) {
+      console.log("[ABI] Invalid ABI format - not an array");
+      return false;
+    }
+
+    if (isBasicProxy(abiObj as any[])) {
+      return true;
+    }
+
+    if (hasCustomProxyFunction(abiObj as any[])) {
+      console.log("[ABI] Detected Custom Proxy Pattern with *_PROXY constant");
+      return true;
+    }
+
+    // Additional proxy checks...
+    const isUUPSProxy = abiObj.some(
+      (item) =>
+        item.type === "function" &&
+        item.name === "upgradeTo" &&
+        item.inputs?.length === 1 &&
+        item.inputs[0].type === "address"
+    );
+
+    if (isUUPSProxy) {
+      console.log("[ABI] Detected UUPS Proxy Pattern");
+      return true;
+    }
+
+    const hasGetImplementation = abiObj.some(
+      (item) =>
+        item.type === "function" &&
+        item.name === "getImplementation" &&
+        item.outputs?.length === 1 &&
+        item.outputs[0].type === "address"
+    );
+
+    if (hasGetImplementation) {
+      console.log("[ABI] Detected getImplementation Pattern");
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error("[ABI] Error checking proxy status:", error);
+    return false;
+  }
+}
+
 export async function getImplementationAddress(
   contractAddress: string,
   chainId: number,
   context: any,
   blockNumber: bigint
-): Promise<ImplementationResult | null> {
+): Promise<ProxyImplementation | null> {
   try {
-    console.log(`[IMP] Starting implementation lookup for ${contractAddress}`);
-
-    if (
-      !contractAddress ||
-      contractAddress === "0x" ||
-      contractAddress.toLowerCase() ===
-        "0x0000000000000000000000000000000000000000"
-    ) {
-      console.log("[IMP] Invalid or zero contract address provided");
-      return null;
-    }
-
-    const formattedAddress = contractAddress.toLowerCase();
-    if (!formattedAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+    if (!isValidAddress(contractAddress)) {
       console.log(`[IMP] Invalid address format: ${contractAddress}`);
       return null;
     }
 
-    // Check storage slots first as it's more reliable
-    const PROXY_IMPLEMENTATION_SLOTS = {
-      EIP1967:
-        "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
-      EIP1967_BEACON:
-        "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
-      SIMPLE_PROXY:
-        "0x0000000000000000000000000000000000000000000000000000000000000000",
-      GNOSIS_SAFE_PROXY:
-        "0xa619486e6a192c629d6e5c69ba3efd8478c19a6022185a277f24bc5b6e1060f9",
-      OPENZEPPELIN_PROXY:
-        "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
-    } as const;
+    const formattedAddress = contractAddress.toLowerCase();
+    const contractAbi = await checkAndStoreAbi(
+      formattedAddress,
+      chainId,
+      context,
+      blockNumber,
+      false
+    );
+    console.log(`[IMP] Contract ABI: ${contractAbi}`);
 
-    for (const [slotType, slot] of Object.entries(PROXY_IMPLEMENTATION_SLOTS)) {
-      try {
-        const implementationAddress = await context.client.getStorageAt({
-          address: formattedAddress as `0x${string}`,
-          slot: slot as `0x${string}`,
-          blockNumber: blockNumber,
-        });
+    if (!contractAbi) return null;
 
-        if (
-          implementationAddress &&
-          implementationAddress !== "0x" &&
-          implementationAddress !== "0x0000000000000000000000000000000000000000"
-        ) {
-          const cleanAddress = "0x" + implementationAddress.slice(-40);
+    const parsedAbi =
+      typeof contractAbi === "string" ? JSON.parse(contractAbi) : contractAbi;
 
-          if (
-            cleanAddress.match(/^0x[a-fA-F0-9]{40}$/) &&
-            cleanAddress.toLowerCase() !==
-              "0x0000000000000000000000000000000000000000"
-          ) {
-            console.log(
-              `[IMP] Found implementation at ${slotType} slot for ${formattedAddress}: ${cleanAddress}`
-            );
-
-            // Fetch the implementation ABI
-            const implementationAbi = await checkAndStoreAbi(
-              cleanAddress,
-              chainId,
-              context,
-              blockNumber,
-              false // Set isImplementation to false to avoid infinite recursion
-            );
-
-            if (implementationAbi) {
-              return {
-                address: cleanAddress,
-                abi: implementationAbi,
-              };
-            }
-          }
-        }
-      } catch (error) {
-        console.error(
-          `[IMP] Error getting implementation address from storage slot:`,
-          error
-        );
-      }
+    // Check basic proxy first
+    if (isBasicProxy(parsedAbi)) {
+      const implementation = await tryGetImplementationFromSlot(
+        context,
+        formattedAddress,
+        PROXY_PATTERNS.SIMPLE_PROXY?.slot as `0x${string}`,
+        blockNumber,
+        chainId,
+        "slot 0 (basic proxy)"
+      );
+      if (implementation) return implementation;
     }
 
-    const GET_IMPLEMENTATION_ABI = [
-      {
-        inputs: [],
-        name: "getImplementation",
-        outputs: [{ type: "address", name: "implementation" }],
-        stateMutability: "view",
-        type: "function",
-      },
-    ] as const;
+    // Check custom proxy functions
+    const proxyFunctions = findCustomProxyFunctions(parsedAbi);
+    for (const proxyFunction of proxyFunctions) {
+      const implementation = await tryGetImplementationFromCustomProxy(
+        context,
+        formattedAddress,
+        proxyFunction,
+        blockNumber,
+        chainId
+      );
+      if (implementation) return implementation;
+    }
 
+    // Check standard proxy patterns
+    for (const [patternName, pattern] of Object.entries(PROXY_PATTERNS)) {
+      const implementation = await tryGetImplementationFromSlot(
+        context,
+        formattedAddress,
+        pattern.slot,
+        blockNumber,
+        chainId,
+        `${pattern.name} slot`
+      );
+      if (implementation) return implementation;
+    }
+
+    // Try getImplementation as last resort
     try {
+      const GET_IMPLEMENTATION_ABI = [
+        {
+          inputs: [],
+          name: "getImplementation",
+          outputs: [{ type: "address", name: "implementation" }],
+          stateMutability: "view",
+          type: "function",
+        },
+      ] as const;
+
       const implementationAddress = await context.client.readContract({
         address: formattedAddress as `0x${string}`,
         abi: GET_IMPLEMENTATION_ABI,
         functionName: "getImplementation",
-        blockNumber: blockNumber,
+        blockNumber,
       });
 
-      if (
-        implementationAddress &&
-        implementationAddress !== "0x0000000000000000000000000000000000000000"
-      ) {
+      if (isValidAddress(implementationAddress)) {
         console.log(
           `[IMP] Found implementation via getImplementation() for ${formattedAddress}: ${implementationAddress}`
         );
@@ -275,26 +464,17 @@ export async function getImplementationAddress(
         );
 
         if (implementationAbi) {
-          return {
-            address: implementationAddress,
-            abi: implementationAbi,
-          };
+          return { address: implementationAddress, abi: implementationAbi };
         }
       }
     } catch (error) {
-      console.log("[IMP] No getImplementation function found", {
-        error,
-      });
+      console.log("[IMP] No getImplementation function found");
     }
 
     console.log(`[IMP] No valid implementation found for ${formattedAddress}`);
     return null;
   } catch (error) {
-    console.error(`[IMP] Error getting implementation address:`, {
-      contract: contractAddress,
-      error: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined,
-    });
+    console.error(`[IMP] Error getting implementation address:`, error);
     return null;
   }
 }
@@ -829,82 +1009,6 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function convertBigIntsToStrings(obj: any): any {
   return replaceBigInts(obj, (v) => String(v));
-}
-
-export function isProxyContract(abi: any): boolean {
-  try {
-    const abiObj = typeof abi === "string" ? JSON.parse(abi) : abi;
-
-    if (!Array.isArray(abiObj)) {
-      console.log("[ABI] Invalid ABI format - not an array");
-      return false;
-    }
-
-    // Check for SERVICE_STAKING_PROXY constant and getImplementation function
-    const isServiceStakingProxy =
-      abiObj.some(
-        (item: any) =>
-          item.type === "function" &&
-          item.name === "SERVICE_STAKING_PROXY" &&
-          item.outputs?.[0]?.type === "bytes32"
-      ) &&
-      abiObj.some(
-        (item: any) =>
-          item.type === "function" &&
-          item.name === "getImplementation" &&
-          item.outputs?.[0]?.type === "address"
-      );
-
-    if (isServiceStakingProxy) {
-      console.log("[ABI] Detected Service Staking Proxy Pattern");
-      return true;
-    }
-
-    // Gnosis Safe Proxy pattern check
-    const isGnosisSafeProxy =
-      abiObj.some(
-        (item) => item.type === "fallback" && item.stateMutability === "payable"
-      ) &&
-      abiObj.some(
-        (item) =>
-          item.type === "constructor" &&
-          item.inputs?.length === 1 &&
-          item.inputs[0].type === "address" &&
-          (item.inputs[0].name === "_singleton" ||
-            item.inputs[0].name === "singleton")
-      );
-
-    if (isGnosisSafeProxy) {
-      console.log("[ABI] Detected Gnosis Safe Proxy Pattern");
-      return true;
-    }
-
-    //getImplementation pattern check
-    const hasGetImplementation = abiObj.some(
-      (item: any) =>
-        item.type === "function" &&
-        item.name === "getImplementation" &&
-        item.outputs?.length === 1 &&
-        item.outputs[0].type === "address"
-    );
-
-    if (hasGetImplementation) {
-      console.log("[ABI] Detected getImplementation Pattern");
-      return true;
-    }
-
-    return false;
-  } catch (error) {
-    console.error("[ABI] Error checking proxy status:", {
-      error: error instanceof Error ? error.message : "Unknown error",
-      abi: typeof abi === "string" ? "string" : typeof abi,
-      sample:
-        typeof abi === "object"
-          ? JSON.stringify(abi).slice(0, 100) + "..."
-          : "n/a",
-    });
-    return false;
-  }
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

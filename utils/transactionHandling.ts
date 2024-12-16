@@ -160,9 +160,6 @@ export async function processTransaction(
     const logs = receipt?.logs || [];
 
     const decodedLogs = [] as any[];
-    console.log(
-      `[TX] Starting to process ${logs.length} logs for transaction ${hash}`
-    );
 
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i];

@@ -89,15 +89,34 @@ export const Agent = onchainTable(
 export const AgentInstance = onchainTable(
   "agent_instance",
   (t) => ({
-    id: t.text(),
-    agentId: t.text().notNull(),
+    id: t.text().primaryKey(),
     blockNumber: t.integer().notNull(),
     timestamp: t.integer().notNull(),
   }),
   (table) => ({
-    pk: primaryKey({ columns: [table.id, table.agentId] }),
     idx: index().on(table.id),
+    timestampIdx: index().on(table.timestamp),
+    blockNumberIdx: index().on(table.blockNumber),
+  })
+);
+
+export const AgentInstanceToAgent = onchainTable(
+  "agent_instance_to_agent",
+  (t) => ({
+    id: t.text(),
+    agentInstanceId: t.text().notNull(),
+    agentId: t.text().notNull(),
+    chain: t.text().notNull(),
+    blockNumber: t.integer().notNull(),
+    timestamp: t.integer().notNull(),
+  }),
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.agentInstanceId, table.agentId, table.chain],
+    }),
+    instanceIdx: index().on(table.agentInstanceId),
     agentIdx: index().on(table.agentId),
+    chainIdx: index().on(table.chain),
     timestampIdx: index().on(table.timestamp),
     blockNumberIdx: index().on(table.blockNumber),
   })
@@ -316,19 +335,27 @@ export const ServiceAgentRelations = relations(ServiceAgent, ({ one }) => ({
 
 // Agent Relations
 export const AgentRelations = relations(Agent, ({ many }) => ({
-  instances: many(AgentInstance),
+  instanceConnections: many(AgentInstanceToAgent),
   componentAgents: many(ComponentAgent),
 }));
 
-export const AgentInstanceRelations = relations(
-  AgentInstance,
-  ({ one, many }) => ({
+export const AgentInstanceRelations = relations(AgentInstance, ({ many }) => ({
+  agents: many(AgentInstanceToAgent),
+  toTransactions: many(AgentToTransaction),
+  fromTransactions: many(AgentFromTransaction),
+}));
+
+export const AgentInstanceToAgentRelations = relations(
+  AgentInstanceToAgent,
+  ({ one }) => ({
+    agentInstance: one(AgentInstance, {
+      fields: [AgentInstanceToAgent.agentInstanceId],
+      references: [AgentInstance.id],
+    }),
     agent: one(Agent, {
-      fields: [AgentInstance.agentId],
+      fields: [AgentInstanceToAgent.agentId],
       references: [Agent.id],
     }),
-    toTransactions: many(AgentToTransaction),
-    fromTransactions: many(AgentFromTransaction),
   })
 );
 
