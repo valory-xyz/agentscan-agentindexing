@@ -259,7 +259,6 @@ export async function generateEmbeddingWithRetry(
   // If text might be too long, split it before attempting embedding
   if (estimatedTokens > MAX_TOKENS) {
     const chunks = splitTextIntoChunks(text, MAX_TOKENS);
-    console.log(`Split into ${chunks.length} chunks`);
 
     const embeddings: any[] = [];
     for (let i = 0; i < chunks.length; i++) {
