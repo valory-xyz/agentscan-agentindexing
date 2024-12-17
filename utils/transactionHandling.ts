@@ -163,6 +163,7 @@ export async function processTransaction(
 
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i];
+      console.log(`[TX] Processing log ${i} for transaction ${hash}`);
       const contractAddress = log?.address?.toLowerCase();
 
       if (!log) {
@@ -190,9 +191,6 @@ export async function processTransaction(
           rawTopics: log.topics,
         };
       } else if (eventSignature === SIGNATURES.EVENTS.FPMM_BUY) {
-        console.log(
-          `[TX] Detected FPMM Buy event in log ${i} from contract ${contractAddress}`
-        );
         const data = log?.data?.slice(2) || "";
         const investmentAmount = data.slice(0, 64);
         const feeAmount = data.slice(64, 128);
@@ -217,6 +215,10 @@ export async function processTransaction(
           rawData: log?.data,
           rawTopics: log?.topics || [],
         };
+        console.log(
+          `[TX] Detected FPMM Buy event in log ${i} from contract ${contractAddress} for transaction ${hash}`,
+          decodedLog
+        );
       } else {
         decodedLog = (await decodeLogWithDetails(
           log,
@@ -227,6 +229,12 @@ export async function processTransaction(
       }
 
       if (decodedLog) {
+        if (decodedLog.decoded?.name === "FPMMBuy") {
+          console.log(
+            `[TX] Decoded log for ${hash} in log ${i} from contract ${contractAddress}`,
+            decodedLog
+          );
+        }
         decodedLogs.push({
           ...log,
           decoded: decodedLog,
@@ -354,7 +362,6 @@ export async function processTransaction(
           logCount: logValues.length,
         });
 
-        // Fallback to individual inserts if batch fails
         console.log(`[TX] Attempting individual inserts for ${hash}`);
         for (const logValue of logValues) {
           try {
