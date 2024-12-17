@@ -5,7 +5,6 @@ import {
   ServiceAgent,
   ComponentAgent,
   AgentInstance,
-  AgentInstanceToAgent,
 } from "ponder:schema";
 import {
   CONTRACT_NAMES,
@@ -161,21 +160,6 @@ CONTRACT_NAMES.forEach((contractName) => {
         .insert(AgentInstance)
         .values({
           id: agentInstanceId,
-          blockNumber: Number(event.block.number),
-          timestamp: Number(event.block.timestamp),
-        })
-        .onConflictDoUpdate({
-          blockNumber: Number(event.block.number),
-          timestamp: Number(event.block.timestamp),
-        });
-
-      await context.db
-        .insert(AgentInstanceToAgent)
-        .values({
-          id: `${agentInstanceId}-${agentId}-${chain}`,
-          agentInstanceId: agentInstanceId,
-          agentId: agentId,
-          chain: chain,
           blockNumber: Number(event.block.number),
           timestamp: Number(event.block.timestamp),
         })
