@@ -154,12 +154,33 @@ CONTRACT_NAMES.forEach((contractName) => {
       `Handling ${contractName}:RegisterInstance for service ${serviceId} and agent ${agentId}`
     );
 
+    //first insert the agent instance if it doesn't exist
     try {
-      // Create agent instance
+      await context.db
+        .insert(Agent)
+        .values({
+          id: agentId,
+          name: null,
+          description: null,
+          image: null,
+          codeUri: null,
+          blockNumber: Number(event.block.number),
+          timestamp: Number(event.block.timestamp),
+          metadataHash: null,
+          metadataURI: null,
+          packageHash: null,
+          operator: null,
+        })
+        .onConflictDoNothing();
+    } catch (e) {
+      console.error("Error inserting agent:", e);
+    }
+    try {
       await context.db
         .insert(AgentInstance)
         .values({
           id: agentInstanceId,
+          agentId,
           blockNumber: Number(event.block.number),
           timestamp: Number(event.block.timestamp),
         })
