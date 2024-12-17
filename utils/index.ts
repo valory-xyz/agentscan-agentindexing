@@ -256,24 +256,20 @@ async function tryGetImplementationFromSlot(
   slotDescription: string
 ): Promise<ProxyImplementation | null> {
   try {
-    const implementationAddress = await context.client.getStorageAt({
-      address: formattedAddress as `0x${string}`,
-      slot,
-      blockNumber,
-    });
+    const implementationAddress = await context.client
+      .getStorageAt({
+        address: formattedAddress as `0x${string}`,
+        slot,
+        blockNumber,
+      })
+      .catch(() => null); // Catch RPC errors and return null
 
     if (!implementationAddress) {
-      console.log(
-        `[IMP] No implementation address found in ${slotDescription}`
-      );
       return null;
     }
 
     const cleanAddress = cleanImplementationAddress(implementationAddress);
     if (!cleanAddress) {
-      console.log(
-        `[IMP] Invalid implementation address found in ${slotDescription}`
-      );
       return null;
     }
 
@@ -283,15 +279,18 @@ async function tryGetImplementationFromSlot(
       context,
       blockNumber,
       false
-    );
+    ).catch(() => null); // Catch any ABI fetching errors
 
     return implementationAbi
       ? { address: cleanAddress, abi: implementationAbi }
       : null;
   } catch (error) {
-    console.error(`[IMP] Error reading from ${slotDescription}:`, {
+    // Log the error but don't throw
+    console.debug(`[IMP] Error reading from ${slotDescription}:`, {
       error: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined,
+      slot,
+      formattedAddress,
+      slotDescription,
     });
     return null;
   }
@@ -395,7 +394,7 @@ export async function getImplementationAddress(
 ): Promise<ProxyImplementation | null> {
   try {
     if (!isValidAddress(contractAddress)) {
-      console.log(`[IMP] Invalid address format: ${contractAddress}`);
+      console.log(`[IMP] Invalid address: ${contractAddress}`);
       return null;
     }
 
@@ -406,14 +405,16 @@ export async function getImplementationAddress(
       context,
       blockNumber,
       false
-    );
+    ).catch(() => null);
 
-    if (!contractAbi) return null;
+    if (!contractAbi) {
+      console.log(`[IMP] No ABI found for ${formattedAddress}`);
+      return null;
+    }
 
     const parsedAbi =
       typeof contractAbi === "string" ? JSON.parse(contractAbi) : contractAbi;
 
-    // Check basic proxy first
     if (isBasicProxy(parsedAbi)) {
       const implementation = await tryGetImplementationFromSlot(
         context,
@@ -426,21 +427,28 @@ export async function getImplementationAddress(
       if (implementation) return implementation;
     }
 
-    // Check custom proxy functions
+    // Check custom proxy functions silently
     const proxyFunctions = findCustomProxyFunctions(parsedAbi);
     for (const proxyFunction of proxyFunctions) {
-      const implementation = await tryGetImplementationFromCustomProxy(
-        context,
-        formattedAddress,
-        proxyFunction,
-        blockNumber,
-        chainId
-      );
-      if (implementation) return implementation;
+      try {
+        const implementation = await tryGetImplementationFromCustomProxy(
+          context,
+          formattedAddress,
+          proxyFunction,
+          blockNumber,
+          chainId
+        );
+        if (implementation) return implementation;
+      } catch (error) {
+        console.debug(`[IMP] Custom proxy function check failed:`, {
+          function: proxyFunction.name,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
     }
 
-    // Check standard proxy patterns
-    for (const [patternName, pattern] of Object.entries(PROXY_PATTERNS)) {
+    // Check standard proxy patterns silently
+    for (const [, pattern] of Object.entries(PROXY_PATTERNS)) {
       const implementation = await tryGetImplementationFromSlot(
         context,
         formattedAddress,

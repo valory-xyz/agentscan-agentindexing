@@ -49,7 +49,6 @@ async function decodeLogWithDetails(
       : contractAbi;
 
     try {
-      // Find matching event fragment
       const eventFragment = parsedAbi?.find(
         (fragment: any) =>
           fragment.type === "event" && fragment.topics?.[0] === eventSignature
@@ -163,7 +162,7 @@ export async function processTransaction(
 
     for (let i = 0; i < logs.length; i++) {
       const log = logs[i];
-      console.log(`[TX] Processing log ${i} for transaction ${hash}`);
+
       const contractAddress = log?.address?.toLowerCase();
 
       if (!log) {
@@ -245,6 +244,7 @@ export async function processTransaction(
         );
       }
     }
+    console.log(`[TX] Finished processing logs for transaction ${hash}`);
 
     const transactionData = convertBigIntsToStrings({
       hash: event.transaction.hash,
