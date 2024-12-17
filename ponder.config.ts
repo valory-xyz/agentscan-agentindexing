@@ -15,6 +15,7 @@ export default createConfig({
     polygon: {
       chainId: 137,
       transport: http(process.env.PONDER_RPC_URL_137),
+      pollingInterval: 2_000,
     },
     gnosis: {
       chainId: 100,
@@ -24,10 +25,12 @@ export default createConfig({
     arbitrum: {
       chainId: 42161,
       transport: http(process.env.PONDER_RPC_URL_42161),
+      pollingInterval: 2_000,
     },
     optimism: {
       chainId: 10,
       transport: http(process.env.PONDER_RPC_URL_10),
+      pollingInterval: 2_000,
     },
     base: {
       chainId: 8453,
