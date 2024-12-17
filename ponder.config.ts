@@ -10,6 +10,7 @@ export default createConfig({
     mainnet: {
       chainId: 1,
       transport: http(process.env.PONDER_RPC_URL_1),
+      pollingInterval: 2_000,
     },
     polygon: {
       chainId: 137,
@@ -18,6 +19,7 @@ export default createConfig({
     gnosis: {
       chainId: 100,
       transport: loadBalance([http(process.env.PONDER_RPC_URL_100)]),
+      pollingInterval: 2_000,
     },
     arbitrum: {
       chainId: 42161,
@@ -30,6 +32,7 @@ export default createConfig({
     base: {
       chainId: 8453,
       transport: http(process.env.PONDER_RPC_URL_8453),
+      pollingInterval: 2_000,
     },
   },
   accounts: {
