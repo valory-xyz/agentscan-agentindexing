@@ -428,7 +428,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         codeUri: metadataJson?.codeUri,
       });
     } catch (e) {
-      console.error("Error updating service, attempting creation:", e);
+      console.error("Error updating service, attempting creation!:", e);
       try {
         const defaultService = createDefaultService(
           serviceId,
