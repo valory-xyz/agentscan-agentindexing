@@ -194,7 +194,18 @@ const isValidAddress = (address: string): boolean => {
   );
 };
 
-const cleanImplementationAddress = (rawAddress: string): string | null => {
+const cleanImplementationAddress = (
+  rawAddress: string | null | undefined
+): string | null => {
+  if (!rawAddress || typeof rawAddress !== "string") {
+    return null;
+  }
+
+  // Ensure the address has at least 40 characters (20 bytes) to slice
+  if (rawAddress.length < 40) {
+    return null;
+  }
+
   const cleanAddress = "0x" + rawAddress.slice(-40);
   return isValidAddress(cleanAddress) ? cleanAddress : null;
 };
@@ -251,8 +262,20 @@ async function tryGetImplementationFromSlot(
       blockNumber,
     });
 
+    if (!implementationAddress) {
+      console.log(
+        `[IMP] No implementation address found in ${slotDescription}`
+      );
+      return null;
+    }
+
     const cleanAddress = cleanImplementationAddress(implementationAddress);
-    if (!cleanAddress) return null;
+    if (!cleanAddress) {
+      console.log(
+        `[IMP] Invalid implementation address found in ${slotDescription}`
+      );
+      return null;
+    }
 
     const implementationAbi = await checkAndStoreAbi(
       cleanAddress,
@@ -266,7 +289,10 @@ async function tryGetImplementationFromSlot(
       ? { address: cleanAddress, abi: implementationAbi }
       : null;
   } catch (error) {
-    console.error(`[IMP] Error reading from ${slotDescription}:`, error);
+    console.error(`[IMP] Error reading from ${slotDescription}:`, {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return null;
   }
 }
