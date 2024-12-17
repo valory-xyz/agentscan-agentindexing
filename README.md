@@ -1,13 +1,11 @@
-# Agents.fun Base indexer
+# AgentScan indexer
 
-A [Ponder](https://ponder.sh) indexer for tracking agent and service contract events on top of olas
+A [Ponder](https://ponder.sh) indexer for tracking agent and service contract events, as well as transactions on top of olas
 
-The indexed data is exposed via a GraphQL API that can be queried to analyze Memeorr activity.
+The indexed data is exposed via a GraphQL API that can be queried to analyze Agent activity
 
 # NOTE: you will need a RPC URL for the following chains for improved indexing speed:
-mainnet,polygon,gnosis,arbitrum,optimism,base,celo.
-
-For now mode is turned off due to low indexing speed, to turn it back on uncomment the corresponding chain id and make a PONDER_RPC_URL_34443 env variable.
+mainnet,gnosis,base
 
 most of these chains you can get from [Alchemy](https://www.alchemy.com/), as an alternative you can use [Quicknode](https://www.quicknode.com/)
 
@@ -20,9 +18,11 @@ most of these chains you can get from [Alchemy](https://www.alchemy.com/), as an
 npm install
 ```
 
-3. Create a `.env.local` file with your RPC URL:
+3. Create a `.env.local` file with your RPC URLs:
 ```
-PONDER_RPC_URL_8453="https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY"
+PONDER_RPC_URL_8453="..."
+PONDER_RPC_URL_1="....
+PONDER_RPC_URL_10="..."
 ```
 
 4. Start the development server:
