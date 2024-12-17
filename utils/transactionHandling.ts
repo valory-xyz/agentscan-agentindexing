@@ -266,7 +266,7 @@ export async function processTransaction(
     console.log(
       `Transaction Data logs length for ${hash}: ${
         JSON.parse(transactionData.logs).length
-      } logs`
+      } logs!`
     );
 
     console.log("About to format transaction logs...");
