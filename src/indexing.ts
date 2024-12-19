@@ -12,6 +12,7 @@ import {
   fetchMetadata,
   getChainId,
   getChainName,
+  transformIpfsUrl,
 } from "../utils";
 
 const createDefaultService = (
@@ -58,8 +59,10 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
     id: agentId,
     name: metadataJson.name,
     description: metadataJson.description,
-    image: metadataJson.image,
-    codeUri: metadataJson.codeUri,
+    image: metadataJson.image ? transformIpfsUrl(metadataJson.image) : null,
+    codeUri: metadataJson.codeUri
+      ? transformIpfsUrl(metadataJson.codeUri)
+      : null,
     blockNumber: Number(event.block.number),
     timestamp: Number(event.block.timestamp),
     packageHash: metadataJson.packageHash,
@@ -67,12 +70,17 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
     metadataURI: metadataJson.metadataURI,
   };
 
-  await context.db.insert(Agent).values(updateData).onConflictDoUpdate({
-    name: updateData.name,
-    description: updateData.description,
-    image: updateData.image,
-    codeUri: updateData.codeUri,
-  });
+  await context.db
+    .insert(Agent)
+    .values(updateData)
+    .onConflictDoUpdate({
+      name: updateData.name,
+      description: updateData.description,
+      image: updateData.image ? transformIpfsUrl(updateData?.image) : null,
+      codeUri: updateData.codeUri
+        ? transformIpfsUrl(updateData?.codeUri)
+        : null,
+    });
 
   try {
     const { client } = context;
@@ -268,8 +276,10 @@ CONTRACT_NAMES.forEach((contractName) => {
       chainId: getChainId(chain),
       name: metadataJson?.name,
       description: metadataJson?.description,
-      image: metadataJson?.image,
-      codeUri: metadataJson?.codeUri,
+      image: metadataJson?.image ? transformIpfsUrl(metadataJson?.image) : null,
+      codeUri: metadataJson?.codeUri
+        ? transformIpfsUrl(metadataJson?.codeUri)
+        : null,
       metadataURI: metadataJson?.metadataURI,
       packageHash,
       metadataHash: event.args.configHash,
@@ -429,8 +439,12 @@ CONTRACT_NAMES.forEach((contractName) => {
         metadataHash: event.args.configHash,
         name: metadataJson?.name,
         description: metadataJson?.description,
-        image: metadataJson?.image,
-        codeUri: metadataJson?.codeUri,
+        image: metadataJson?.image
+          ? transformIpfsUrl(metadataJson?.image)
+          : null,
+        codeUri: metadataJson?.codeUri
+          ? transformIpfsUrl(metadataJson?.codeUri)
+          : null,
       });
     } catch (e) {
       console.error("Error updating service, attempting creation!!:", e);
