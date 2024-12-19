@@ -963,9 +963,9 @@ export const fetchAndTransformMetadata = async (
         `[Metadata] Found metadata for ${configInfo.id}: ${metadataJson.name}`
       );
 
-      // if (metadataJson.packageHash) {
-      //   void processPackageDownload(metadataJson.packageHash, configInfo.id);
-      // }
+      if (metadataJson.packageHash) {
+        void processPackageDownload(metadataJson.packageHash, configInfo.id);
+      }
       return metadataJson;
     } catch (error) {
       if (attempt === maxRetries - 1) {
