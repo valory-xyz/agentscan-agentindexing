@@ -353,9 +353,6 @@ export async function processTransaction(
           `[TX] Batch inserting ${logValues.length} logs for transaction ${hash}`
         );
         await context.db.insert(Log).values(logValues);
-        console.log(
-          `[TX] Successfully inserted ${logValues.length} logs for ${hash}`
-        );
       } catch (error) {
         console.error(`[TX] Error batch inserting logs for ${hash}:`, {
           error: error instanceof Error ? error.message : "Unknown error",
