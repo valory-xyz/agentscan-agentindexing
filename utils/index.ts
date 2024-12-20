@@ -959,9 +959,6 @@ export const fetchAndTransformMetadata = async (
         ),
         metadataURI,
       };
-      console.log(
-        `[Metadata] Found metadata for ${configInfo.id}: ${metadataJson.name}`
-      );
 
       if (metadataJson.packageHash) {
         void processPackageDownload(metadataJson.packageHash, configInfo.id);

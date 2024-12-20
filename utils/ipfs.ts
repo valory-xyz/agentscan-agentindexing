@@ -240,7 +240,6 @@ export async function processPackageDownload(
 ) {
   const transformedHash = transformIpfsUrl(packageHash);
   try {
-    console.log("Downloading package hash...", transformedHash);
     if (transformedHash) {
       void recursiveDownload(transformedHash, 20, configId);
     } else {

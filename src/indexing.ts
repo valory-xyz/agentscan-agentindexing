@@ -158,10 +158,6 @@ CONTRACT_NAMES.forEach((contractName) => {
     const agentId = event.args.agentId.toString();
     const agentInstanceId = event.args.agentInstance.toLowerCase();
 
-    console.log(
-      `Handling ${contractName}:RegisterInstance for service ${serviceId} and agent ${agentId}`
-    );
-
     //first insert the agent instance if it doesn't exist
     try {
       await context.db
@@ -258,9 +254,6 @@ CONTRACT_NAMES.forEach((contractName) => {
       "service"
     );
     const packageHash = metadataJson?.packageHash;
-    console.log(
-      `Handling ${contractName}:CreateService for service ${serviceId}`
-    );
 
     const serviceData = {
       id: serviceId,
@@ -314,9 +307,6 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
-    console.log(
-      `Handling ${contractName}:DeployService for service ${serviceId}`
-    );
 
     try {
       await context.db
@@ -348,9 +338,6 @@ CONTRACT_NAMES.forEach((contractName) => {
       const serviceId = createChainScopedId(
         chain,
         event.args.serviceId.toString().toLowerCase()
-      );
-      console.log(
-        `Handling ${contractName}:CreateMultisigWithAgents for service ${serviceId}`
       );
 
       try {
@@ -386,9 +373,6 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
-    console.log(
-      `Handling ${contractName}:TerminateService for service ${serviceId}`
-    );
 
     try {
       await context.db
@@ -421,9 +405,6 @@ CONTRACT_NAMES.forEach((contractName) => {
     const serviceId = createChainScopedId(
       chain,
       event.args.serviceId.toString().toLowerCase()
-    );
-    console.log(
-      `Handling ${contractName}:UpdateService for service ${serviceId}`
     );
 
     try {
