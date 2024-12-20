@@ -959,10 +959,20 @@ export const fetchAndTransformMetadata = async (
         ),
         metadataURI,
       };
-
-      if (metadataJson.packageHash) {
-        void processPackageDownload(metadataJson.packageHash, configInfo.id);
+      try {
+        if (metadataJson.packageHash) {
+          void processPackageDownload(metadataJson.packageHash, configInfo.id);
+        }
+      } catch (error) {
+        console.error(
+          `[Metadata] Error processing package hash for ${configInfo.id}:`,
+          {
+            error: error instanceof Error ? error.message : "Unknown error",
+            stack: error instanceof Error ? error.stack : undefined,
+          }
+        );
       }
+
       return metadataJson;
     } catch (error) {
       if (attempt === maxRetries - 1) {
