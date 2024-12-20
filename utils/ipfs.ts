@@ -907,9 +907,6 @@ async function traverseDAG(
       attempts++;
 
       const delay = calculateRetryDelay(attempts);
-      console.log(
-        `Gateway ${gateway} failed. Waiting ${delay}ms before retry...`
-      );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
