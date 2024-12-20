@@ -7,7 +7,7 @@ import {
   Transaction,
 } from "ponder:schema";
 
-import { decodeEventLog } from "viem";
+import { decodeEventLog, decodeFunctionData } from "viem";
 
 import { Context } from "ponder:registry";
 import { SIGNATURES } from "./constants";
@@ -130,6 +130,55 @@ async function decodeLogWithDetails(
   }
 }
 
+async function decodeFunctionCall(
+  input: string,
+  to: string,
+  chainId: number,
+  context: any,
+  blockNumber: bigint
+) {
+  if (!input || input === "0x") return null;
+
+  try {
+    const contractAbi = await checkAndStoreAbi(
+      to,
+      chainId,
+      context,
+      blockNumber
+    );
+
+    if (!contractAbi) {
+      console.log(`No ABI found for contract ${to}`);
+      return null;
+    }
+
+    const parsedAbi = Array.isArray(contractAbi)
+      ? contractAbi
+      : typeof contractAbi === "string"
+      ? JSON.parse(contractAbi)
+      : contractAbi;
+
+    try {
+      const decoded = decodeFunctionData({
+        abi: parsedAbi,
+        data: input as `0x${string}`,
+      });
+
+      return {
+        name: decoded.functionName,
+        args: convertBigIntsToStrings(decoded.args),
+        signature: input.slice(0, 10),
+      };
+    } catch (error) {
+      console.log(`Failed to decode function data for ${to}:`, error);
+      return null;
+    }
+  } catch (error) {
+    console.error(`Error decoding function call for ${to}:`, error);
+    return null;
+  }
+}
+
 export async function processTransaction(
   hash: string,
   event: any,
@@ -151,6 +200,16 @@ export async function processTransaction(
       });
       return;
     }
+
+    const decodedFunction = toAddress
+      ? await decodeFunctionCall(
+          input,
+          toAddress.toLowerCase(),
+          chainId,
+          context,
+          blockNumber
+        )
+      : null;
 
     const receipt = await context.client.getTransactionReceipt({
       hash: hash as `0x${string}`,
@@ -254,6 +313,7 @@ export async function processTransaction(
       to: toAddress || "",
       value: event.transaction.value.toString(),
       input: input,
+      decodedFunction: decodedFunction ? JSON.stringify(decodedFunction) : null,
       isMultisend: decodedLogs.some(
         (log) =>
           log.decoded?.name === "MultiSend" ||
@@ -271,7 +331,11 @@ export async function processTransaction(
 
     console.log("About to format transaction logs...");
 
-    formatTransactionLogs(hash, JSON.parse(transactionData.logs));
+    formatTransactionLogs(
+      hash,
+      JSON.parse(transactionData.logs),
+      decodedFunction
+    );
 
     console.log("Finished formatting transaction logs");
 
@@ -392,7 +456,11 @@ export async function processTransaction(
   }
 }
 
-export const formatTransactionLogs = (hash: string, logs: any[]) => {
+export const formatTransactionLogs = (
+  hash: string,
+  logs: any[],
+  decodedFunction: any
+) => {
   console.log("\n=== Transaction Logs Format ===");
   console.log(`Transaction Hash: ${hash}`);
   console.log(`Total Logs: ${logs.length}`);
@@ -411,6 +479,11 @@ export const formatTransactionLogs = (hash: string, logs: any[]) => {
 
     console.log("Event Signature:", log.decoded.eventSignature);
   });
+
+  if (decodedFunction) {
+    console.log("\n=== Decoded Function ===");
+    console.log(decodedFunction);
+  }
 
   console.log("\n=== End Transaction Logs ===\n");
 };
