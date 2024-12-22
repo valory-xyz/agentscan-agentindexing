@@ -243,7 +243,7 @@ async function withRetry<T>(
           delayMs = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
         }
 
-        console.log(
+        console.error(
           `Rate limited. Waiting ${delayMs}ms before retry...`,
           error?.message
         );
@@ -258,7 +258,7 @@ async function withRetry<T>(
 
       const delay =
         initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
-      console.log(`Attempt ${attempt} failed. Retrying in ${delay}ms...`);
+      console.error(`Attempt ${attempt} failed. Retrying in ${delay}ms...`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
