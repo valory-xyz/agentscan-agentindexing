@@ -317,7 +317,7 @@ export async function generateEmbeddingWithRetry(
           embeddings.push(embedding);
         }
       } catch (error) {
-        console.error(`Error processing chunk ${i + 1}:`, error);
+        console.error(`Error processing chunk ${i + 1}!:`, error);
       }
     }
     return embeddings;
