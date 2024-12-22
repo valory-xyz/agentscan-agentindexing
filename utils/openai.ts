@@ -229,11 +229,31 @@ async function withRetry<T>(
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.status === 429) {
+        const retryAfterMs = error.response?.headers?.["retry-after-ms"];
+
+        const retryAfter = error.response?.headers?.["retry-after"];
+
+        let delayMs: number;
+        if (retryAfterMs) {
+          delayMs = parseInt(retryAfterMs);
+        } else if (retryAfter) {
+          delayMs = parseInt(retryAfter) * 1000;
+        } else {
+          delayMs = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+        }
+
+        console.log(`Rate limited. Waiting ${delayMs}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+
       if (attempt === maxRetries) {
         console.error(`Failed all retry attempts:`, error);
         throw error;
       }
+
       const delay =
         initialDelay * Math.pow(2, attempt - 1) + Math.random() * 200;
       console.log(`Attempt ${attempt} failed. Retrying in ${delay}ms...`);
