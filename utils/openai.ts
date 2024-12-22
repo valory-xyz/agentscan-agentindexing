@@ -219,11 +219,10 @@ export function splitTextIntoChunks(
   return chunks;
 }
 
-// Add a reusable retry utility
 async function withRetry<T>(
   operation: () => Promise<T>,
   options: RetryOptions = {}
-): Promise<T> {
+): Promise<T | null> {
   const { maxRetries = 3, initialDelay = 400 } = options;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -232,7 +231,6 @@ async function withRetry<T>(
     } catch (error: any) {
       if (error?.status === 429) {
         const retryAfterMs = error.response?.headers?.["retry-after-ms"];
-
         const retryAfter = error.response?.headers?.["retry-after"];
 
         let delayMs: number;
@@ -251,7 +249,7 @@ async function withRetry<T>(
 
       if (attempt === maxRetries) {
         console.error(`Failed all retry attempts:`, error);
-        throw error;
+        return null;
       }
 
       const delay =
@@ -260,27 +258,24 @@ async function withRetry<T>(
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw new Error("Failed after all retries");
+  return null;
 }
 
-// Cache for embeddings
 const embeddingCache = new Map<string, number[]>();
 
 export async function generateEmbeddingWithRetry(
   text: string,
   options?: RetryOptions
 ): Promise<any> {
-  // Check cache first
   const cached = embeddingCache.get(text);
   if (cached) return cached;
 
   const estimatedTokens = estimateTokens(text);
 
-  // If text might be too long, split it before attempting embedding
   if (estimatedTokens > MAX_TOKENS) {
     const chunks = splitTextIntoChunks(text, MAX_TOKENS);
-
     const embeddings: any[] = [];
+
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
 
