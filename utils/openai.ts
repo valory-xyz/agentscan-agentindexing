@@ -245,7 +245,7 @@ async function withRetry<T>(
 
         console.log(
           `Rate limited. Waiting ${delayMs}ms before retry...`,
-          error
+          error?.message
         );
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
