@@ -15,7 +15,7 @@ const axiosInstance = axios.create({
   validateStatus: (status) => status >= 200 && status < 500,
 });
 
-const IPFS_GATEWAYS = ["https://gateway.autonolas.tech", "https://ipfs.io"];
+const IPFS_GATEWAYS = ["https://gateway.autonolas.tech"];
 
 // Gateway management types and interfaces
 interface GatewayStatus {
