@@ -17,7 +17,6 @@ const axiosInstance = axios.create({
 
 const IPFS_GATEWAYS = ["https://gateway.autonolas.tech"];
 
-// Gateway management types and interfaces
 interface GatewayStatus {
   url: string;
   failureCount: number;
