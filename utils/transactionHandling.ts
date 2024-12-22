@@ -5,12 +5,14 @@ import {
   AgentToTransaction,
   Log,
   Transaction,
+  AgentInstance,
 } from "ponder:schema";
 
 import { decodeEventLog, decodeFunctionData } from "viem";
 
 import { Context } from "ponder:registry";
 import { SIGNATURES } from "./constants";
+import { eq } from "ponder";
 
 async function decodeLogWithDetails(
   log: any,
@@ -186,8 +188,8 @@ export async function processTransaction(
   isFromTransaction: boolean
 ) {
   try {
-    const fromAddress = event.transaction?.from?.toString() || "";
-    const toAddress = event.transaction?.to?.toString() || "";
+    const fromAddress = event.transaction?.from?.toString().toLowerCase() || "";
+    const toAddress = event.transaction?.to?.toString().toLowerCase() || "";
     const input = event.transaction?.input || "0x";
     const chainId = context.network?.chainId;
     const blockNumber = event.block?.number;
@@ -199,6 +201,34 @@ export async function processTransaction(
         blockNumber,
       });
       return;
+    }
+
+    if (isFromTransaction) {
+      //check if agent exists
+      const agent = await context.db.sql
+        .select()
+        .from(AgentInstance)
+        .where(eq(AgentInstance.id, fromAddress));
+
+      if (!agent || agent.length === 0) {
+        console.log(
+          `Skipping AgentFromTransaction: Agent ${fromAddress} not found`
+        );
+        return;
+      }
+    } else {
+      //check if agent exists
+      const agent = await context.db.sql
+        .select()
+        .from(AgentInstance)
+        .where(eq(AgentInstance.id, toAddress.toLowerCase()));
+
+      if (!agent || agent.length === 0) {
+        console.log(
+          `Skipping AgentToTransaction: Agent ${toAddress} not found`
+        );
+        return;
+      }
     }
 
     const decodedFunction = toAddress
@@ -354,17 +384,14 @@ export async function processTransaction(
       try {
         await context.db.insert(AgentFromTransaction).values({
           id: `${fromAddress}-${hash}-from`,
-          agentInstanceId: fromAddress.toLowerCase(),
+          agentInstanceId: fromAddress,
           transactionHash: hash,
           blockNumber: Number(blockNumber),
           timestamp: Number(event.block.timestamp),
           chain: context.network?.name,
         });
       } catch (error) {
-        console.error(
-          `Error inserting AgentFromTransaction for ${hash}:`,
-          error
-        );
+        console.error(`Error inserting Agent transactions for ${hash}:`, error);
       }
     } else if (toAddress) {
       try {
@@ -380,10 +407,6 @@ export async function processTransaction(
         console.error(`Error inserting AgentToTransaction for ${hash}:`, error);
       }
     }
-
-    console.log(
-      `[TX] Starting to store ${decodedLogs.length} logs for ${hash}`
-    );
 
     const logValues = decodedLogs.map((decodedLog) => {
       const eventName =
@@ -413,20 +436,21 @@ export async function processTransaction(
 
     if (logValues.length > 0) {
       try {
-        console.log(
-          `[TX] Batch inserting ${logValues.length} logs for transaction ${hash}`
-        );
         await context.db.insert(Log).values(logValues);
-      } catch (error) {
-        console.error(`[TX] Error batch inserting logs for ${hash}:`, {
-          error: error instanceof Error ? error.message : "Unknown error",
+        console.log(`[TX] Bulk inserted ${logValues.length} logs for ${hash}`);
+      } catch (bulkError) {
+        console.error(`[TX] Error bulk inserting logs for ${hash}:`, {
+          error:
+            bulkError instanceof Error ? bulkError.message : "Unknown error",
           logCount: logValues.length,
         });
 
-        console.log(`[TX] Attempting individual inserts for ${hash}`);
         for (const logValue of logValues) {
           try {
             await context.db.insert(Log).values(logValue);
+            console.log(
+              `[TX] Inserted individual log for ${hash} at index ${logValue.logIndex}`
+            );
           } catch (individualError) {
             console.error(`[TX] Error inserting individual log for ${hash}:`, {
               logIndex: logValue.logIndex,
