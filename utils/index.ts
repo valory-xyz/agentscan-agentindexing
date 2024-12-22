@@ -960,7 +960,7 @@ export const fetchAndTransformMetadata = async (
         metadataURI,
       };
       try {
-        if (metadataJson.packageHash) {
+        if (metadataJson.packageHash && configInfo.type === "agent") {
           void processPackageDownload(metadataJson.packageHash, configInfo.id);
         }
       } catch (error) {
