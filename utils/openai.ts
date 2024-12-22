@@ -222,7 +222,7 @@ export function splitTextIntoChunks(
 async function withRetry<T>(
   operation: () => Promise<T>,
   options: RetryOptions = {}
-): Promise<T | null> {
+): Promise<T> {
   const { maxRetries = 3, initialDelay = 400 } = options;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -231,6 +231,7 @@ async function withRetry<T>(
     } catch (error: any) {
       if (error?.status === 429) {
         const retryAfterMs = error.response?.headers?.["retry-after-ms"];
+
         const retryAfter = error.response?.headers?.["retry-after"];
 
         let delayMs: number;
@@ -242,14 +243,17 @@ async function withRetry<T>(
           delayMs = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
         }
 
-        console.log(`Rate limited. Waiting ${delayMs}ms before retry...`);
+        console.log(
+          `Rate limited. Waiting ${delayMs}ms before retry...`,
+          error
+        );
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
 
       if (attempt === maxRetries) {
         console.error(`Failed all retry attempts:`, error);
-        return null;
+        throw error;
       }
 
       const delay =
@@ -258,24 +262,27 @@ async function withRetry<T>(
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  return null;
+  throw new Error("Failed after all retries");
 }
 
+// Cache for embeddings
 const embeddingCache = new Map<string, number[]>();
 
 export async function generateEmbeddingWithRetry(
   text: string,
   options?: RetryOptions
 ): Promise<any> {
+  // Check cache first
   const cached = embeddingCache.get(text);
   if (cached) return cached;
 
   const estimatedTokens = estimateTokens(text);
 
+  // If text might be too long, split it before attempting embedding
   if (estimatedTokens > MAX_TOKENS) {
     const chunks = splitTextIntoChunks(text, MAX_TOKENS);
-    const embeddings: any[] = [];
 
+    const embeddings: any[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
 
