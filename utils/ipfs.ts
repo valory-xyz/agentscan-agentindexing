@@ -144,28 +144,27 @@ async function determineCategory(contents: any[]): Promise<string | null> {
   return null;
 }
 
-// Create a queue for database operations
-export const dbQueue = new pQueue({
-  concurrency: 5,
-  timeout: 120000, // 120 second timeout
-  throwOnTimeout: true,
-}).on("error", async (error) => {
-  if (error.message?.includes("timed out")) {
-    console.log(`Database operation timed out, will be retried automatically`);
-  } else {
-    console.error(`Database operation failed:`, error);
-  }
-});
-
-// Add error boundary wrapper for queue operations
-// Add retry configuration
+// Enhanced DB retry configuration with exponential backoff
 const DB_RETRY_CONFIG = {
   maxAttempts: 10,
   baseDelay: 5000, // 5 seconds
   maxDelay: 30000, // 30 seconds
+  jitter: 0.25, // Add 25% random jitter to prevent thundering herd
 };
 
-// Enhanced error boundary wrapper with retries
+// Add helper function for calculating retry delay with jitter
+function calculateDBRetryDelay(attempt: number): number {
+  const baseDelay = Math.min(
+    DB_RETRY_CONFIG.baseDelay * Math.pow(2, attempt - 1),
+    DB_RETRY_CONFIG.maxDelay
+  );
+
+  // Add random jitter
+  const jitter = baseDelay * DB_RETRY_CONFIG.jitter * Math.random();
+  return baseDelay + jitter;
+}
+
+// Enhanced error boundary wrapper with better retry logic
 export async function safeQueueOperation<T>(
   operation: () => Promise<T>,
   attempt = 1
@@ -174,22 +173,50 @@ export async function safeQueueOperation<T>(
     return await operation();
   } catch (error: any) {
     const isTimeout = error.message?.includes("timed out");
-    if (isTimeout && attempt < DB_RETRY_CONFIG.maxAttempts) {
-      const delay = Math.min(
-        DB_RETRY_CONFIG.baseDelay * Math.pow(2, attempt - 1),
-        DB_RETRY_CONFIG.maxDelay
-      );
+    const isConnectionError = error.message?.includes("connection");
+
+    // Retry on timeouts and connection errors
+    if (
+      (isTimeout || isConnectionError) &&
+      attempt < DB_RETRY_CONFIG.maxAttempts
+    ) {
+      const delay = calculateDBRetryDelay(attempt);
       console.log(
-        `Database timeout, attempt ${attempt}. Retrying in ${delay}ms...`
+        `Database operation failed (${error.message}), attempt ${attempt}/${
+          DB_RETRY_CONFIG.maxAttempts
+        }. Retrying in ${Math.round(delay)}ms...`
       );
+
       await new Promise((resolve) => setTimeout(resolve, delay));
       return safeQueueOperation(operation, attempt + 1);
     }
 
-    console.error("Queue operation failed:", error);
+    // Log detailed error information
+    console.error("Queue operation failed permanently:", {
+      error: error.message,
+      attempt,
+      stack: error.stack,
+      code: error.code,
+    });
+
     return null;
   }
 }
+
+// Update dbQueue configuration
+export const dbQueue = new pQueue({
+  concurrency: 3, // Reduced from 5 to prevent overwhelming the database
+  timeout: 180000, // Increased to 3 minutes
+  throwOnTimeout: true,
+  intervalCap: 50, // Limit operations per interval
+  interval: 10000, // 10 second interval
+}).on("error", async (error) => {
+  if (error.message?.includes("timed out")) {
+    console.log(`Database operation timed out: ${error.message}`);
+  } else {
+    console.error(`Database operation failed:`, error);
+  }
+});
 
 // Add new helper function to check if component is already processed
 async function isComponentCompleted(componentId: string): Promise<boolean> {

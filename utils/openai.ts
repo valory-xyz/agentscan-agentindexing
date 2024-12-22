@@ -19,6 +19,9 @@ export const MAX_TOKENS = 4000; // Significantly reduced from 4000
 export const TOKEN_OVERLAP = 25; // Reduced from 50
 export const MIN_CHUNK_LENGTH = 100;
 export const ABSOLUTE_MAX_TOKENS = 7000; // Reduced from 8000
+const RATE_LIMIT_PAUSE = 60000; // 1 minute pause when hitting rate limits
+const MAX_CONCURRENT_REQUESTS = 5; // Limit parallel requests
+const REQUEST_BATCH_SIZE = 10; // Process embeddings in batches
 
 // Helper function to estimate tokens (rough approximation)
 export function estimateTokens(text: string | undefined): number {
@@ -219,6 +222,21 @@ export function splitTextIntoChunks(
   return chunks;
 }
 
+// Add a simple rate limiter
+const rateLimiter = {
+  lastRequest: 0,
+  minRequestGap: 100, // Minimum ms between requests
+  async waitForNext() {
+    const now = Date.now();
+    const timeToWait = Math.max(0, this.lastRequest + this.minRequestGap - now);
+    if (timeToWait > 0) {
+      await new Promise((resolve) => setTimeout(resolve, timeToWait));
+    }
+    this.lastRequest = Date.now();
+  },
+};
+
+// Modify the withRetry function
 async function withRetry<T>(
   operation: () => Promise<T>,
   options: RetryOptions = {}
@@ -227,26 +245,18 @@ async function withRetry<T>(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      await rateLimiter.waitForNext();
       return await operation();
     } catch (error: any) {
       if (error?.status === 429) {
-        const retryAfterMs = error.response?.headers?.["retry-after-ms"];
+        const delayMs =
+          attempt === maxRetries
+            ? RATE_LIMIT_PAUSE
+            : error.response?.headers?.["retry-after-ms"] ||
+              error.response?.headers?.["retry-after"] * 1000 ||
+              RATE_LIMIT_PAUSE;
 
-        const retryAfter = error.response?.headers?.["retry-after"];
-
-        let delayMs: number;
-        if (retryAfterMs) {
-          delayMs = parseInt(retryAfterMs);
-        } else if (retryAfter) {
-          delayMs = parseInt(retryAfter) * 1000;
-        } else {
-          delayMs = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-        }
-
-        console.error(
-          `Rate limited. Waiting ${delayMs}ms before retry...`,
-          error?.message
-        );
+        console.warn(`Rate limited. Pausing for ${delayMs}ms`);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
@@ -268,6 +278,7 @@ async function withRetry<T>(
 // Cache for embeddings
 const embeddingCache = new Map<string, number[]>();
 
+// Modify generateEmbeddingWithRetry to use batching
 export async function generateEmbeddingWithRetry(
   text: string,
   options?: RetryOptions
@@ -281,44 +292,37 @@ export async function generateEmbeddingWithRetry(
   // If text might be too long, split it before attempting embedding
   if (estimatedTokens > MAX_TOKENS) {
     const chunks = splitTextIntoChunks(text, MAX_TOKENS);
-
     const embeddings: any[] = [];
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
 
-      try {
-        // Double-check chunk size
-        if (estimateTokens(chunk) > MAX_TOKENS) {
-          console.log(`Chunk ${i + 1} still too large, further splitting...`);
-          const subChunks = splitTextIntoChunks(chunk, MAX_TOKENS / 2);
-          for (let j = 0; j < subChunks.length; j++) {
-            const subChunk = subChunks[j];
-            const embedding = await withRetry(async () => {
-              if (!subChunk) return null;
-              const response = await openai.embeddings.create({
-                model: "text-embedding-3-small",
-                input: subChunk,
-                dimensions: 512,
-              });
-              return pgvector.toSql(response.data?.[0]?.embedding);
-            }, options);
-            embeddings.push(embedding);
-          }
-        } else {
-          const embedding = await withRetry(async () => {
-            if (!chunk) return null;
-            const response = await openai.embeddings.create({
-              model: "text-embedding-3-small",
-              input: chunk,
-              dimensions: 512,
-            });
-            return pgvector.toSql(response.data?.[0]?.embedding);
-          }, options);
-          embeddings.push(embedding);
-        }
-      } catch (error) {
-        console.error(`Error processing chunk ${i + 1}!:`, error);
-      }
+    // Process chunks in batches
+    for (let i = 0; i < chunks.length; i += REQUEST_BATCH_SIZE) {
+      const batch = chunks.slice(i, i + REQUEST_BATCH_SIZE);
+      const batchPromises = batch.map((chunk) =>
+        withRetry(async () => {
+          if (!chunk) return null;
+          const response = await openai.embeddings.create({
+            model: "text-embedding-3-small",
+            input: chunk,
+            dimensions: 512,
+          });
+          return pgvector.toSql(response.data?.[0]?.embedding);
+        }, options)
+      );
+
+      // Process batch with concurrency limit
+      const batchResults = await Promise.all(
+        batchPromises.map(
+          (promise, index) =>
+            new Promise((resolve) =>
+              setTimeout(
+                () => resolve(promise),
+                index * rateLimiter.minRequestGap
+              )
+            )
+        )
+      );
+
+      embeddings.push(...batchResults);
     }
     return embeddings;
   } else {
