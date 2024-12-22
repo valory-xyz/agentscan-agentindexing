@@ -204,7 +204,6 @@ export async function processTransaction(
     }
 
     if (isFromTransaction) {
-      //check if agent exists
       const agent = await context.db.sql
         .select()
         .from(AgentInstance)
@@ -217,7 +216,6 @@ export async function processTransaction(
         return;
       }
     } else {
-      //check if agent exists
       const agent = await context.db.sql
         .select()
         .from(AgentInstance)
@@ -436,32 +434,48 @@ export async function processTransaction(
 
     if (logValues.length > 0) {
       try {
-        await context.db.insert(Log).values(logValues);
-        console.log(`[TX] Bulk inserted ${logValues.length} logs for ${hash}`);
-      } catch (bulkError) {
-        console.error(`[TX] Error bulk inserting logs for ${hash}:`, {
-          error:
-            bulkError instanceof Error ? bulkError.message : "Unknown error",
-          logCount: logValues.length,
-        });
-
-        for (const logValue of logValues) {
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < logValues.length; i += BATCH_SIZE) {
+          const batch = logValues.slice(i, i + BATCH_SIZE);
           try {
-            await context.db.insert(Log).values(logValue);
+            await context.db.insert(Log).values(batch).onConflictDoNothing();
             console.log(
-              `[TX] Inserted individual log for ${hash} at index ${logValue.logIndex}`
+              `[TX] Inserted batch ${i / BATCH_SIZE + 1} of logs for ${hash}`
             );
-          } catch (individualError) {
-            console.error(`[TX] Error inserting individual log for ${hash}:`, {
-              logIndex: logValue.logIndex,
-              contractAddress: logValue.address,
+          } catch (batchError) {
+            console.error(`[TX] Error inserting batch of logs for ${hash}:`, {
+              batchNumber: i / BATCH_SIZE + 1,
               error:
-                individualError instanceof Error
-                  ? individualError.message
+                batchError instanceof Error
+                  ? batchError.message
                   : "Unknown error",
+              logCount: batch.length,
             });
+
+            for (const logValue of batch) {
+              try {
+                await context.db
+                  .insert(Log)
+                  .values(logValue)
+                  .onConflictDoNothing();
+              } catch (individualError) {
+                console.error(`[TX] Error inserting individual log:`, {
+                  hash,
+                  logIndex: logValue.logIndex,
+                  error:
+                    individualError instanceof Error
+                      ? individualError.message
+                      : "Unknown error",
+                });
+              }
+            }
           }
         }
+      } catch (error) {
+        console.error(`[TX] Fatal error processing logs for ${hash}:`, {
+          error: error instanceof Error ? error.message : "Unknown error",
+          logCount: logValues.length,
+        });
       }
     }
 
