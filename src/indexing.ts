@@ -279,7 +279,6 @@ CONTRACT_NAMES.forEach((contractName) => {
       timestamp: Number(event.block.timestamp),
     };
     try {
-      console.log(`Inserting service ${serviceId}`);
       await context.db
         .insert(Service)
         .values({
