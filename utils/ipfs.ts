@@ -208,6 +208,10 @@ export const dbQueue = new pQueue({
   } else {
     console.error(`Database operation failed:`, error);
   }
+
+  if (global.gc) {
+    global.gc();
+  }
 });
 
 // Add new helper function to check if component is already processed
@@ -437,6 +441,11 @@ async function processCodeContent(
         }
       });
     });
+
+    if (global.gc) {
+      global.gc();
+    }
+
     return promise || false;
   } catch (error) {
     console.error(`Failed to process code content for ${relativePath}:`, error);
@@ -918,6 +927,18 @@ async function traverseDAG(
             );
           }
         }
+
+        if (!item.isDirectory) {
+          await processCodeContent(/* ... */);
+
+          if (global.gc) {
+            global.gc();
+          }
+        }
+      }
+
+      if (global.gc) {
+        global.gc();
       }
 
       return { visited, contents, currentPath };

@@ -442,6 +442,10 @@ export async function processTransaction(
             console.log(
               `[TX] Inserted batch ${i / BATCH_SIZE + 1} of logs for ${hash}`
             );
+
+            if (global.gc) {
+              global.gc();
+            }
           } catch (batchError) {
             console.error(`[TX] Error inserting batch of logs for ${hash}:`, {
               batchNumber: i / BATCH_SIZE + 1,
@@ -477,6 +481,10 @@ export async function processTransaction(
           logCount: logValues.length,
         });
       }
+    }
+
+    if (global.gc) {
+      global.gc();
     }
 
     return transactionData;
