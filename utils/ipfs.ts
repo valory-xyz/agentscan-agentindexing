@@ -145,25 +145,22 @@ async function determineCategory(contents: any[]): Promise<string | null> {
 
 // Enhanced DB retry configuration with exponential backoff
 const DB_RETRY_CONFIG = {
-  maxAttempts: 10,
-  baseDelay: 5000, // 5 seconds
-  maxDelay: 30000, // 30 seconds
-  jitter: 0.25, // Add 25% random jitter to prevent thundering herd
+  maxAttempts: 3,
+  baseDelay: 4000,
+  maxDelay: 20000,
+  jitter: 0.25,
 };
 
-// Add helper function for calculating retry delay with jitter
 function calculateDBRetryDelay(attempt: number): number {
   const baseDelay = Math.min(
     DB_RETRY_CONFIG.baseDelay * Math.pow(2, attempt - 1),
     DB_RETRY_CONFIG.maxDelay
   );
 
-  // Add random jitter
   const jitter = baseDelay * DB_RETRY_CONFIG.jitter * Math.random();
   return baseDelay + jitter;
 }
 
-// Enhanced error boundary wrapper with better retry logic
 export async function safeQueueOperation<T>(
   operation: () => Promise<T>,
   attempt = 1
@@ -174,7 +171,6 @@ export async function safeQueueOperation<T>(
     const isTimeout = error.message?.includes("timed out");
     const isConnectionError = error.message?.includes("connection");
 
-    // Retry on timeouts and connection errors
     if (
       (isTimeout || isConnectionError) &&
       attempt < DB_RETRY_CONFIG.maxAttempts
@@ -202,13 +198,10 @@ export async function safeQueueOperation<T>(
   }
 }
 
-// Update dbQueue configuration
 export const dbQueue = new pQueue({
-  concurrency: 3, // Reduced from 5 to prevent overwhelming the database
-  timeout: 180000, // Increased to 3 minutes
+  concurrency: 3,
+  timeout: 300000,
   throwOnTimeout: true,
-  intervalCap: 50, // Limit operations per interval
-  interval: 10000, // 10 second interval
 }).on("error", async (error) => {
   if (error.message?.includes("timed out")) {
     console.log(`Database operation timed out: ${error.message}`);
