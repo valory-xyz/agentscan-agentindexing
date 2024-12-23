@@ -42,6 +42,7 @@ export const Service = onchainTable(
     description: t.text(),
     image: t.text(),
     codeUri: t.text(),
+    owner: t.text(),
   }),
   (table) => ({
     idx: index().on(table.id),
@@ -54,6 +55,7 @@ export const Service = onchainTable(
     descriptionIdx: index().on(table.description),
     imageIdx: index().on(table.image),
     codeUriIdx: index().on(table.codeUri),
+    ownerIdx: index().on(table.owner),
   })
 );
 

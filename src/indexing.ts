@@ -41,6 +41,7 @@ const createDefaultService = (
   packageHash: null,
   metadataHash: configHash,
   timestamp,
+  owner: null,
 });
 
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
@@ -446,6 +447,46 @@ CONTRACT_NAMES.forEach((contractName) => {
           });
       } catch (insertError) {
         console.error("Error in UpdateService fallback handler:", insertError);
+      }
+    }
+  });
+
+  ponder.on(`${contractName}:Transfer`, async ({ event, context }) => {
+    const chain = getChainName(contractName);
+    const serviceId = createChainScopedId(
+      chain,
+      event.args.id.toString().toLowerCase()
+    );
+
+    console.log(`Handling ${contractName}:Transfer for service ${serviceId}`);
+    console.log(
+      `New owner: ${event.args.to}, Previous owner: ${event.args.from}`
+    );
+
+    try {
+      await context.db
+        .update(Service, { id: serviceId })
+        .set({ owner: event.args.to.toLowerCase() });
+    } catch (e) {
+      console.error(`Error updating service ${serviceId} owner:`, e);
+      try {
+        const defaultService = createDefaultService(
+          serviceId,
+          chain,
+          Number(event.block.number),
+          Number(event.block.timestamp)
+        );
+        await context.db
+          .insert(Service)
+          .values({
+            ...defaultService,
+            owner: event.args.to.toLowerCase(),
+          })
+          .onConflictDoUpdate({
+            owner: event.args.to.toLowerCase(),
+          });
+      } catch (insertError) {
+        console.error("Error in Transfer fallback handler:", insertError);
       }
     }
   });
