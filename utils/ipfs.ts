@@ -927,14 +927,6 @@ async function traverseDAG(
             );
           }
         }
-
-        if (!item.isDirectory) {
-          await processCodeContent(/* ... */);
-
-          if (global.gc) {
-            global.gc();
-          }
-        }
       }
 
       if (global.gc) {
