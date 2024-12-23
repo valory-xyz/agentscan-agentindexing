@@ -207,7 +207,8 @@ export async function processTransaction(
       const agent = await context.db.sql
         .select()
         .from(AgentInstance)
-        .where(eq(AgentInstance.id, fromAddress));
+        .where(eq(AgentInstance.id, fromAddress))
+        .limit(1);
 
       if (!agent || agent.length === 0) {
         console.log(
@@ -219,7 +220,8 @@ export async function processTransaction(
       const agent = await context.db.sql
         .select()
         .from(AgentInstance)
-        .where(eq(AgentInstance.id, toAddress.toLowerCase()));
+        .where(eq(AgentInstance.id, toAddress.toLowerCase()))
+        .limit(1);
 
       if (!agent || agent.length === 0) {
         console.log(
