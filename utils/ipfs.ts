@@ -200,7 +200,7 @@ export async function safeQueueOperation<T>(
 
 export const dbQueue = new pQueue({
   concurrency: 3,
-  timeout: 300000,
+  timeout: 120000,
   throwOnTimeout: true,
 }).on("error", async (error) => {
   if (error.message?.includes("timed out")) {
