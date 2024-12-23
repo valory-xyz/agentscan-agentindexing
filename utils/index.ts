@@ -752,7 +752,6 @@ async function processAbiResponse(
   const location = getChainExplorerUrl(chainId, formattedAddress);
   const id = `${formattedAddress}-${chainName}`;
 
-  // Check if entry already exists
   const existingEntry = await executeQuery(async (client: any) => {
     const result = await client.query(
       `SELECT id FROM context_embeddings WHERE id = $1 AND type = 'abi' AND location = $2 LIMIT 1`,
@@ -828,7 +827,6 @@ async function storeAbiInDatabase({
         if (Array.isArray(embeddings)) {
           const results = await Promise.all(
             embeddings.map(async (embedding, index) => {
-              // Check if chunk already exists
               const existingChunk = await executeQuery(async (client: any) => {
                 const result = await client.query(
                   `SELECT id FROM context_embeddings WHERE id = $1 AND type = 'abi' AND location = $2 LIMIT 1`,
