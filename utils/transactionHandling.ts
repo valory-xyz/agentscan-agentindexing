@@ -204,26 +204,22 @@ export async function processTransaction(
     }
 
     if (isFromTransaction) {
-      const agent = await context.db.sql
-        .select()
-        .from(AgentInstance)
-        .where(eq(AgentInstance.id, fromAddress))
-        .limit(1);
+      const agent = await context.db.find(AgentInstance, {
+        id: fromAddress.toLowerCase(),
+      });
 
-      if (!agent || agent.length === 0) {
+      if (!agent) {
         console.log(
           `Skipping AgentFromTransaction: Agent ${fromAddress} not found`
         );
         return;
       }
     } else {
-      const agent = await context.db.sql
-        .select()
-        .from(AgentInstance)
-        .where(eq(AgentInstance.id, toAddress.toLowerCase()))
-        .limit(1);
+      const agent = await context.db.find(AgentInstance, {
+        id: toAddress.toLowerCase(),
+      });
 
-      if (!agent || agent.length === 0) {
+      if (!agent) {
         console.log(
           `Skipping AgentToTransaction: Agent ${toAddress} not found`
         );
