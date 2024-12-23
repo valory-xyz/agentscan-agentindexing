@@ -195,7 +195,7 @@ export async function processTransaction(
     const blockNumber = event.block?.number;
 
     if (!hash || !chainId || !blockNumber) {
-      console.error("Missing required transaction data:", {
+      console.error("Missing required transaction data!:", {
         hash,
         chainId,
         blockNumber,
