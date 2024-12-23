@@ -755,7 +755,7 @@ async function processAbiResponse(
   const existingEntry = await executeQuery(async (client: any) => {
     const result = await client.query(
       `SELECT id FROM context_embeddings WHERE lower(id) LIKE $1 AND type = 'abi' LIMIT 1`,
-      [`${id.toLowerCase()}%`, location]
+      [`${id.toLowerCase()}%`]
     );
     return result.rows.length > 0;
   });
