@@ -17,6 +17,8 @@ const getAbidataRedisKey = (address: string, network: string): string =>
 
 const TTL = 7 * 24 * 60 * 60; // 1 week
 
+const NEGATIVE_RESPONSE_TTL = 24 * 60 * 60; // 1 day for negative responses
+
 const INITIAL_RETRY_DELAY = 5000;
 
 const INITIAL_TIMEOUT = 30000; // 30 seconds
@@ -587,6 +589,13 @@ export async function checkAndStoreAbi(
           try {
             const parsedResponse = JSON.parse(cachedAbidataResponse);
 
+            if (parsedResponse === null) {
+              console.log(
+                `[ABI] Using cached negative response for ${formattedAddress}`
+              );
+              throw new Error("No ABI found in cached response");
+            }
+
             if (Array.isArray(parsedResponse)) {
               const content = JSON.stringify(parsedResponse);
 
@@ -628,6 +637,27 @@ export async function checkAndStoreAbi(
       const response = await fetchWithRetry(url, MAX_RETRIES, INITIAL_TIMEOUT);
 
       if (!response.data?.ok || !response.data.abi) {
+        try {
+          if (redisClient.isReady) {
+            void redisClient.set(abidataRedisKey, JSON.stringify(null), {
+              EX: NEGATIVE_RESPONSE_TTL,
+            });
+            console.log(
+              `[ABI] Cached negative response for ${formattedAddress} with ${NEGATIVE_RESPONSE_TTL}s TTL`
+            );
+          }
+        } catch (redisCacheError) {
+          console.warn(
+            `[ABI] Failed to cache negative response for ${formattedAddress}:`,
+            {
+              error:
+                redisCacheError instanceof Error
+                  ? redisCacheError.message
+                  : "Unknown error",
+            }
+          );
+        }
+
         throw new Error("No ABI found in response");
       }
 
@@ -635,7 +665,7 @@ export async function checkAndStoreAbi(
 
       try {
         if (redisClient.isReady) {
-          await redisClient.set(abidataRedisKey, processedAbi, { EX: TTL });
+          void redisClient.set(abidataRedisKey, processedAbi, { EX: TTL });
         } else {
           console.warn(
             `[ABI] Redis cache unavailable for ${formattedAddress}, proceeding without cache`
