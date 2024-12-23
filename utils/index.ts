@@ -750,6 +750,21 @@ async function processAbiResponse(
 
   const chainName = getChainNameFromId(chainId);
   const location = getChainExplorerUrl(chainId, formattedAddress);
+  const id = `${formattedAddress}-${chainName}`;
+
+  // Check if entry already exists
+  const existingEntry = await executeQuery(async (client: any) => {
+    const result = await client.query(
+      `SELECT id FROM context_embeddings WHERE id = $1 AND type = 'abi' AND location = $2 LIMIT 1`,
+      [id, location]
+    );
+    return result.rows.length > 0;
+  });
+
+  if (existingEntry) {
+    console.log(`[ABI] Entry already exists for ${id}, skipping processing`);
+    return parsedAbi;
+  }
 
   if (isImplementation && isProxyContract(parsedAbi)) {
     const implementation = await getImplementationAddress(
@@ -768,7 +783,7 @@ async function processAbiResponse(
       const embeddings = await generateEmbeddingWithRetry(content);
 
       await storeAbiInDatabase({
-        id: `${formattedAddress}-${chainName}`,
+        id,
         location,
         content,
         embeddings,
@@ -778,11 +793,13 @@ async function processAbiResponse(
       return implementation.abi;
     }
   }
+
   const content =
     typeof parsedAbi === "string" ? parsedAbi : JSON.stringify(parsedAbi);
   const embeddings = await generateEmbeddingWithRetry(content);
+
   await storeAbiInDatabase({
-    id: `${formattedAddress}-${chainName}`,
+    id,
     location,
     content,
     embeddings,
@@ -811,6 +828,22 @@ async function storeAbiInDatabase({
         if (Array.isArray(embeddings)) {
           const results = await Promise.all(
             embeddings.map(async (embedding, index) => {
+              // Check if chunk already exists
+              const existingChunk = await executeQuery(async (client: any) => {
+                const result = await client.query(
+                  `SELECT id FROM context_embeddings WHERE id = $1 AND type = 'abi' AND location = $2 LIMIT 1`,
+                  [`${id}-${index}`, location]
+                );
+                return result.rows.length > 0;
+              });
+
+              if (existingChunk) {
+                console.log(
+                  `[ABI] Chunk ${index} already exists for ${id}, skipping insert`
+                );
+                return true;
+              }
+
               const result = await executeQuery(async (client: any) => {
                 const queryResult = await client.query(
                   `INSERT INTO context_embeddings (
