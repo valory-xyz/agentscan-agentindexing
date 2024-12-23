@@ -10,7 +10,7 @@ import {
   TokenTransferData,
 } from "../src/types";
 import { executeQuery, pool } from "./postgres";
-import { dbQueue, processPackageDownload, safeQueueOperation } from "./ipfs";
+import { processPackageDownload } from "./ipfs";
 
 const getAbidataRedisKey = (address: string, network: string): string =>
   `abidata:${address.toLowerCase()}:${network}`;
@@ -754,8 +754,8 @@ async function processAbiResponse(
 
   const existingEntry = await executeQuery(async (client: any) => {
     const result = await client.query(
-      `SELECT id FROM context_embeddings WHERE id = $1 AND type = 'abi' AND location = $2 LIMIT 1`,
-      [id, location]
+      `SELECT id FROM context_embeddings WHERE lower(id) LIKE $1 AND type = 'abi' LIMIT 1`,
+      [`${id.toLowerCase()}%`, location]
     );
     return result.rows.length > 0;
   });
@@ -822,71 +822,24 @@ async function storeAbiInDatabase({
   implementationAddress: string | null;
 }) {
   try {
-    const promise = await safeQueueOperation(async () => {
-      return await dbQueue.add(async () => {
-        if (Array.isArray(embeddings)) {
-          const results = await Promise.all(
-            embeddings.map(async (embedding, index) => {
-              const existingChunk = await executeQuery(async (client: any) => {
-                const result = await client.query(
-                  `SELECT id FROM context_embeddings WHERE id = $1 AND type = 'abi' AND location = $2 LIMIT 1`,
-                  [`${id}-${index}`, location]
-                );
-                return result.rows.length > 0;
-              });
+    if (Array.isArray(embeddings)) {
+      const results = await Promise.all(
+        embeddings.map(async (embedding, index) => {
+          const existingChunk = await executeQuery(async (client: any) => {
+            const result = await client.query(
+              `SELECT id FROM context_embeddings WHERE id = $1 AND type = 'abi' AND location = $2 LIMIT 1`,
+              [`${id}-${index}`, location]
+            );
+            return result.rows.length > 0;
+          });
 
-              if (existingChunk) {
-                console.log(
-                  `[ABI] Chunk ${index} already exists for ${id}, skipping insert`
-                );
-                return true;
-              }
+          if (existingChunk) {
+            console.log(
+              `[ABI] Chunk ${index} already exists for ${id}, skipping insert`
+            );
+            return true;
+          }
 
-              const result = await executeQuery(async (client: any) => {
-                const queryResult = await client.query(
-                  `INSERT INTO context_embeddings (
-                    id,
-                    company_id,
-                    type,
-                    location,
-                    original_location,
-                    content,
-                    name,
-                    embedding,
-                    is_chunk,
-                    created_at,
-                    updated_at
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())  
-                  ON CONFLICT (id, type, location) DO UPDATE SET
-                    content = EXCLUDED.content,
-                    embedding = EXCLUDED.embedding,
-                    updated_at = NOW()
-                  RETURNING id`,
-                  [
-                    `${id}-${index}`,
-                    "olas",
-                    "abi",
-                    location,
-                    implementationAddress
-                      ? getChainExplorerUrl(
-                          getChainId(id.split("-")[1] || "mainnet"),
-                          implementationAddress
-                        )
-                      : null,
-                    content,
-                    id.split("-")[0],
-                    embedding,
-                    true,
-                  ]
-                );
-
-                return queryResult;
-              });
-              return result.rows.length > 0;
-            })
-          );
-          return results.every(Boolean);
-        } else {
           const result = await executeQuery(async (client: any) => {
             const queryResult = await client.query(
               `INSERT INTO context_embeddings (
@@ -908,7 +861,7 @@ async function storeAbiInDatabase({
                 updated_at = NOW()
               RETURNING id`,
               [
-                id,
+                `${id}-${index}`,
                 "olas",
                 "abi",
                 location,
@@ -920,24 +873,60 @@ async function storeAbiInDatabase({
                   : null,
                 content,
                 id.split("-")[0],
-                embeddings,
-                false,
+                embedding,
+                true,
               ]
             );
 
             return queryResult;
           });
           return result.rows.length > 0;
-        }
-      });
-    });
-
-    if (promise) {
+        })
+      );
+      return results.every(Boolean);
     } else {
-      console.log(`[ABI] No changes made to database for ${id}`);
-    }
+      const result = await executeQuery(async (client: any) => {
+        const queryResult = await client.query(
+          `INSERT INTO context_embeddings (
+            id,
+            company_id,
+            type,
+            location,
+            original_location,
+            content,
+            name,
+            embedding,
+            is_chunk,
+            created_at,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())  
+          ON CONFLICT (id, type, location) DO UPDATE SET
+            content = EXCLUDED.content,
+            embedding = EXCLUDED.embedding,
+            updated_at = NOW()
+          RETURNING id`,
+          [
+            id,
+            "olas",
+            "abi",
+            location,
+            implementationAddress
+              ? getChainExplorerUrl(
+                  getChainId(id.split("-")[1] || "mainnet"),
+                  implementationAddress
+                )
+              : null,
+            content,
+            id.split("-")[0],
+            embeddings,
+            false,
+          ]
+        );
 
-    return promise;
+        return queryResult;
+      });
+      return result.rows.length > 0;
+    }
   } catch (error) {
     console.error(`[ABI] Database error storing ABI for ${id}:`, {
       error: error instanceof Error ? error.message : "Unknown error",
