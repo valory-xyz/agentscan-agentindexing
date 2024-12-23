@@ -593,7 +593,7 @@ export async function checkAndStoreAbi(
               console.log(
                 `[ABI] Using cached negative response for ${formattedAddress}`
               );
-              throw new Error("No ABI found in cached response");
+              return null;
             }
 
             if (Array.isArray(parsedResponse)) {
