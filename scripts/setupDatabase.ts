@@ -6,20 +6,25 @@ dotenv.config();
 async function createTables() {
   const createContextEmbeddingsTable = `
     CREATE TABLE IF NOT EXISTS context_embeddings (
-      id SERIAL PRIMARY KEY,
-      address TEXT,
-      chain_id INTEGER,
-      chunk_index INTEGER,
-      chunk_text TEXT NOT NULL,
-      embedding VECTOR(1536),
+      id TEXT PRIMARY KEY,
+      company_id TEXT,
+      type TEXT,
+      location TEXT,
+      content TEXT,
+      name TEXT,
+      embedding VECTOR(512),
+      is_chunk BOOLEAN,
+      original_location TEXT,
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(address, chain_id, chunk_index)
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TIMESTAMP WITH TIME ZONE
     );
   `;
 
   const createIndexes = `
-    CREATE INDEX IF NOT EXISTS idx_context_embeddings_address ON context_embeddings(address);
-    CREATE INDEX IF NOT EXISTS idx_context_embeddings_chain_id ON context_embeddings(chain_id);
+    CREATE INDEX IF NOT EXISTS idx_context_embeddings_company_id ON context_embeddings(company_id);
+    CREATE INDEX IF NOT EXISTS idx_context_embeddings_type ON context_embeddings(type);
+    CREATE INDEX IF NOT EXISTS idx_context_embeddings_location ON context_embeddings(location);
   `;
 
   try {
