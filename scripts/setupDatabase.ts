@@ -1,3 +1,33 @@
+/**
+ * Database Setup Script
+ * 
+ * This script initializes the PostgreSQL database with the required tables and extensions
+ * for the AgentScan indexer. It creates the context_embeddings table with vector support
+ * for storing embeddings and related metadata.
+ * 
+ * Prerequisites:
+ * 1. PostgreSQL database with vector extension support
+ * 2. ABI_DATABASE_URL environment variable set in .env or .env.local
+ *    Format: postgresql://user:password@host:port/database
+ * 
+ * Usage:
+ * ```bash
+ * # First, ensure your environment variables are set
+ * cp .env.example .env.local
+ * # Edit .env.local to add your ABI_DATABASE_URL
+ * 
+ * # Then run the setup script
+ * npm run setup-db
+ * # or
+ * npx ts-node scripts/setupDatabase.ts
+ * ```
+ * 
+ * The script will:
+ * 1. Create the vector extension if not exists
+ * 2. Create the context_embeddings table with 512-dimension vector support
+ * 3. Set up necessary indexes for efficient querying
+ */
+
 import { executeQuery } from "../utils/postgres";
 import dotenv from "dotenv";
 

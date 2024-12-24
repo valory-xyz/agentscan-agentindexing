@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "setup-db": "ts-node scripts/setupDatabase.ts",
     "dev": "NODE_OPTIONS='--max-old-space-size=32768' ponder dev -v",
     "start": "NODE_OPTIONS='--max-old-space-size=32768' ponder start --schema $RAILWAY_DEPLOYMENT_ID",
     "codegen": "NODE_OPTIONS='--max-old-space-size=32768' ponder codegen",
