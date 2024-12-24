@@ -4,9 +4,17 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI client only if ABI database is configured
+const canUseAbiDb = !!process.env.ABI_DATABASE_URL;
+const openai = canUseAbiDb
+  ? new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  : null;
+
+if (!canUseAbiDb) {
+  console.debug("[OpenAI] ABI database not configured, embeddings will be disabled");
+}
 
 // Add type for retry options
 interface RetryOptions {
@@ -300,6 +308,10 @@ export async function generateEmbeddingWithRetry(
       const batchPromises = batch.map((chunk) =>
         withRetry(async () => {
           if (!chunk) return null;
+          if (!openai) {
+            console.debug("[OpenAI] ABI database not configured, skipping chunk embedding");
+            return null;
+          }
           const response = await openai.embeddings.create({
             model: "text-embedding-3-small",
             input: chunk,
@@ -327,6 +339,10 @@ export async function generateEmbeddingWithRetry(
     return embeddings;
   } else {
     const embedding = await withRetry(async () => {
+      if (!openai) {
+        console.debug("[OpenAI] ABI database not configured, skipping embedding");
+        return null;
+      }
       const response = await openai.embeddings.create({
         model: "text-embedding-3-small",
         input: text,
