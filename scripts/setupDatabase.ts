@@ -4,35 +4,22 @@ import dotenv from "dotenv";
 dotenv.config();
 
 async function createTables() {
-  const createAbiTable = `
-    CREATE TABLE IF NOT EXISTS abis (
+  const createContextEmbeddingsTable = `
+    CREATE TABLE IF NOT EXISTS context_embeddings (
       id SERIAL PRIMARY KEY,
-      address TEXT NOT NULL,
-      chain_id INTEGER NOT NULL,
-      abi JSONB NOT NULL,
-      name TEXT,
-      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(address, chain_id)
-    );
-  `;
-
-  const createAbiChunksTable = `
-    CREATE TABLE IF NOT EXISTS abi_chunks (
-      id SERIAL PRIMARY KEY,
-      abi_id INTEGER REFERENCES abis(id) ON DELETE CASCADE,
-      chunk_index INTEGER NOT NULL,
+      address TEXT,
+      chain_id INTEGER,
+      chunk_index INTEGER,
       chunk_text TEXT NOT NULL,
       embedding VECTOR(1536),
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(abi_id, chunk_index)
+      UNIQUE(address, chain_id, chunk_index)
     );
   `;
 
   const createIndexes = `
-    CREATE INDEX IF NOT EXISTS idx_abis_address ON abis(address);
-    CREATE INDEX IF NOT EXISTS idx_abis_chain_id ON abis(chain_id);
-    CREATE INDEX IF NOT EXISTS idx_abi_chunks_abi_id ON abi_chunks(abi_id);
+    CREATE INDEX IF NOT EXISTS idx_context_embeddings_address ON context_embeddings(address);
+    CREATE INDEX IF NOT EXISTS idx_context_embeddings_chain_id ON context_embeddings(chain_id);
   `;
 
   try {
@@ -40,14 +27,13 @@ async function createTables() {
       // Create the vector extension if it doesn't exist
       await client.query(`CREATE EXTENSION IF NOT EXISTS vector;`);
       
-      // Create tables
-      await client.query(createAbiTable);
-      await client.query(createAbiChunksTable);
+      // Create table
+      await client.query(createContextEmbeddingsTable);
       
       // Create indexes
       await client.query(createIndexes);
       
-      console.log("Successfully created ABI database tables and indexes");
+      console.log("Successfully created context embeddings table and indexes");
     });
   } catch (error: any) {
     console.error("Error creating database tables:", error.message);
