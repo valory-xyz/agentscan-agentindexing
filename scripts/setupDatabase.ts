@@ -1,4 +1,4 @@
-import { getPool, executeQuery } from "../utils/postgres";
+import { executeQuery } from "../utils/postgres";
 import dotenv from "dotenv";
 
 dotenv.config();
