@@ -84,7 +84,7 @@ const createPool = (): Pool => {
     },
   });
 
-  pool.on("error", (err, client) => {
+  pool.on("error", (err) => {
     console.error("Unexpected error on idle client:", {
       error: err.message,
       stack: err.stack,

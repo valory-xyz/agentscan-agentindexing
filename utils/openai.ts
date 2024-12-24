@@ -38,7 +38,7 @@ export function estimateTokens(text: string | undefined): number {
     // Even more conservative for JSON/ABI content
     return Math.ceil(text.length / 2); // Changed from 2.5 to 2
   }
-  const hasCode = /[{}\[\]()]/g.test(text);
+  const hasCode = /[{}[\]()]/g.test(text);
   return Math.ceil(text.length / (hasCode ? 2 : 3)); // More conservative estimates
 }
 
@@ -95,7 +95,7 @@ export function splitTextIntoChunks(
   if (isABI(text)) {
     limits = TOKEN_LIMITS.ABI;
     return splitABIContent(text, limits);
-  } else if (/[{}\[\]()]/g.test(text)) {
+  } else if (/[{}[\]()]/g.test(text)) {
     limits = TOKEN_LIMITS.CODE;
   }
 
@@ -202,7 +202,7 @@ export function splitTextIntoChunks(
 
   // Handle regular text content
   if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
-    const segments = text.split(/(?<=\.|\?|\!)\s+/);
+    const segments = text.split(/(?<=\.|!|\?)\s+/);
     let currentChunk = "";
     let currentSize = 0;
 
