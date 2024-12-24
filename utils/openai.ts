@@ -28,7 +28,6 @@ export const TOKEN_OVERLAP = 25; // Reduced from 50
 export const MIN_CHUNK_LENGTH = 100;
 export const ABSOLUTE_MAX_TOKENS = 7000; // Reduced from 8000
 const RATE_LIMIT_PAUSE = 60000; // 1 minute pause when hitting rate limits
-const MAX_CONCURRENT_REQUESTS = 5; // Limit parallel requests
 const REQUEST_BATCH_SIZE = 10; // Process embeddings in batches
 
 // Helper function to estimate tokens (rough approximation)
