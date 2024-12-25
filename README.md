@@ -4,11 +4,13 @@ A [Ponder](https://ponder.sh) indexer for tracking agent and service contract ev
 
 The indexed data is exposed via a GraphQL API that can be queried to analyze Agent activity
 
-# NOTE: you will need a RPC URL for the following chains for improved indexing speed:
-mainnet,gnosis,base
+## Prerequisites
 
-most of these chains you can get from [Alchemy](https://www.alchemy.com/), as an alternative you can use [Quicknode](https://www.quicknode.com/)
+- Node.js >= 18.14
+- PostgreSQL with pgvector extension installed
+- RPC URLs for mainnet, gnosis, and base chains
 
+Most RPC endpoints can be obtained from [Alchemy](https://www.alchemy.com/) or [Quicknode](https://www.quicknode.com/)
 
 ### Local Development
 
@@ -18,24 +20,30 @@ most of these chains you can get from [Alchemy](https://www.alchemy.com/), as an
 npm install
 ```
 
-3. Create a `.env.local` file with your RPC URLs and optional database configuration:
-```
-PONDER_RPC_URL_8453="..."
-PONDER_RPC_URL_1="....
-PONDER_RPC_URL_10="..."
+3. Create a `.env.local` file with your RPC URLs and database configuration:
+```bash
+# Required RPC URLs
+PONDER_RPC_URL_8453="..." # Base
+PONDER_RPC_URL_1="..."    # Mainnet
+PONDER_RPC_URL_100="..."  # Gnosis
 
-# Optional: PostgreSQL database for ABI storage and embeddings
-# Required if you want to use ABI storage and embedding features
+# Required: PostgreSQL database URL with pgvector extension
 ABI_DATABASE_URL="postgresql://user:password@host:port/database"
 ```
 
-4. (Optional) Set up the database:
-If you want to use ABI storage and embeddings functionality, initialize the database:
+4. Set up the database:
 ```bash
-# Run the database setup script
+# First, ensure pgvector extension is installed in your PostgreSQL database
+psql -d your_database_name -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+
+# Then run the database setup script
 npm run setup-db
 ```
-This will create the required tables and indexes in your PostgreSQL database.
+
+This will:
+- Create the required tables with vector support
+- Set up necessary indexes for efficient querying
+- Add composite unique constraints for data integrity
 
 5. Start the development server:
 ```bash
@@ -43,6 +51,13 @@ npm run dev
 ```
 
 The GraphQL playground will be available at http://localhost:42069/graphql
+
+## Troubleshooting
+
+If you encounter database-related errors:
+- Ensure the pgvector extension is installed in your PostgreSQL database
+- Verify your database connection string in `.env.local`
+- Check that your PostgreSQL user has sufficient permissions
 
 ## Deploy
 

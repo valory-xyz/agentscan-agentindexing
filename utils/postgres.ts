@@ -1,12 +1,15 @@
-import { Pool, PoolClient, QueryResult } from "pg";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import pkg, { Pool, PoolClient, QueryResult } from "pg";
+
 import dotenv from "dotenv";
 
 dotenv.config();
+dotenv.config({ path: ".env.local" });
 
-let poolInstance: Pool | null = null;
+let poolInstance: pkg.Pool | null = null;
 
 // Create a mock pool that implements the Pool interface but does nothing
-const createMockPool = (): Pool => {
+const createMockPool = (): typeof pkg.Pool => {
   const mockQueryResult: QueryResult = {
     command: "",
     rowCount: 0,
@@ -66,22 +69,24 @@ const createMockPool = (): Pool => {
     totalCount: 0,
     idleCount: 0,
     waitingCount: 0,
-  } as unknown as Pool;
+  } as unknown as typeof pkg.Pool;
 
   return mockPool;
 };
 
-const createPool = (): Pool => {
+const createPool = (): pkg.Pool => {
   if (!process.env.ABI_DATABASE_URL) {
     console.warn("ABI_DATABASE_URL not defined - ABI storage will be disabled");
-    return createMockPool();
+    return createMockPool() as unknown as pkg.Pool;
   }
 
-  const pool = new Pool({
+  const pool = new pkg.Pool({
     connectionString: process.env.ABI_DATABASE_URL,
-    ssl: {
-      rejectUnauthorized: false,
-    },
+    ssl: process.env.IS_LOCAL
+      ? false
+      : {
+          rejectUnauthorized: false,
+        },
   });
 
   pool.on("error", (err) => {
@@ -94,7 +99,7 @@ const createPool = (): Pool => {
   return pool;
 };
 
-export const getPool = (): Pool => {
+export const getPool = () => {
   if (!poolInstance) {
     poolInstance = createPool();
   }
@@ -139,7 +144,9 @@ export const executeQuery = async <T>(
 
 const testConnection = async (): Promise<void> => {
   if (!process.env.ABI_DATABASE_URL) {
-    console.warn("Skipping PostgreSQL connection test - ABI_DATABASE_URL not defined");
+    console.warn(
+      "Skipping PostgreSQL connection test - ABI_DATABASE_URL not defined"
+    );
     return;
   }
 
@@ -157,3 +164,51 @@ const testConnection = async (): Promise<void> => {
 };
 
 void testConnection();
+
+export const recreateDatabase = async (): Promise<void> => {
+  if (!process.env.ABI_DATABASE_URL) {
+    console.warn("ABI_DATABASE_URL not defined - cannot recreate database");
+    return;
+  }
+
+  const url = new URL(process.env.ABI_DATABASE_URL);
+  const dbName = url.pathname.slice(1); // Remove leading '/'
+
+  // Create a connection to 'postgres' database to recreate the target database
+  const maintenanceUrl = new URL(process.env.ABI_DATABASE_URL);
+  maintenanceUrl.pathname = "/postgres";
+
+  const maintenancePool = new pkg.Pool({
+    connectionString: maintenanceUrl.toString(),
+    ssl: process.env.IS_LOCAL
+      ? false
+      : {
+          rejectUnauthorized: false,
+        },
+  });
+
+  try {
+    // Terminate all connections to the target database
+    await maintenancePool.query(
+      `
+      SELECT pg_terminate_backend(pg_stat_activity.pid)
+      FROM pg_stat_activity
+      WHERE pg_stat_activity.datname = $1
+        AND pid <> pg_backend_pid()
+    `,
+      [dbName]
+    );
+
+    // Drop and recreate the database
+    await maintenancePool.query(`DROP DATABASE IF EXISTS ${dbName}`);
+    await maintenancePool.query(`CREATE DATABASE ${dbName}`);
+
+    console.log(`Database '${dbName}' has been recreated`);
+  } catch (err) {
+    console.error("Error recreating database:", err);
+    throw err;
+  } finally {
+    await maintenancePool.end();
+    poolInstance = createPool();
+  }
+};
