@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "setup-db": "NODE_OPTIONS='--loader ts-node/esm' ts-node -r dotenv/config scripts/setupDatabase.ts",
     "dev": "NODE_OPTIONS='--max-old-space-size=32768' ponder dev -v",
     "start": "NODE_OPTIONS='--max-old-space-size=32768' ponder start --schema $RAILWAY_DEPLOYMENT_ID",
     "codegen": "NODE_OPTIONS='--max-old-space-size=32768' ponder codegen",
@@ -13,6 +14,7 @@
   },
   "dependencies": {
     "axios": "^1.7.7",
+    "dotenv": "^16.4.7",
     "ethers": "^6.13.4",
     "fs": "^0.0.1-security",
     "hono": "^4.5.0",
@@ -25,12 +27,15 @@
     "pgvector": "^0.2.0",
     "ponder": "^0.8.7",
     "redis": "^4.7.0",
+    "ts-node": "^10.9.2",
     "viem": "^2.21.3"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.13",
     "@types/node": "^20.10.0",
     "@types/pg": "^8.11.10",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
     "eslint": "^8.54.0",
     "eslint-config-ponder": "^0.6.23",
     "typescript": "^5.3.2"
