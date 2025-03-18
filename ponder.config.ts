@@ -12,24 +12,9 @@ export default createConfig({
       transport: http(process.env.PONDER_RPC_URL_1),
       pollingInterval: 2_000,
     },
-    polygon: {
-      chainId: 137,
-      transport: http(process.env.PONDER_RPC_URL_137),
-      pollingInterval: 2_000,
-    },
     gnosis: {
       chainId: 100,
       transport: loadBalance([http(process.env.PONDER_RPC_URL_100)]),
-      pollingInterval: 2_000,
-    },
-    arbitrum: {
-      chainId: 42161,
-      transport: http(process.env.PONDER_RPC_URL_42161),
-      pollingInterval: 2_000,
-    },
-    optimism: {
-      chainId: 10,
-      transport: http(process.env.PONDER_RPC_URL_10),
       pollingInterval: 2_000,
     },
     base: {
@@ -51,19 +36,6 @@ export default createConfig({
       }),
       startBlock: 21270000,
     },
-    PolygonRegisterInstance: {
-      network: "polygon",
-      address: factory({
-        address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-
-      startBlock: 41783952,
-    },
     GnosisRegisterInstance: {
       network: "gnosis",
       address: factory({
@@ -75,30 +47,6 @@ export default createConfig({
         parameter: "agentInstance",
       }),
       startBlock: 37200000,
-    },
-    ArbitrumRegisterInstance: {
-      network: "arbitrum",
-      address: factory({
-        address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 174008819,
-    },
-    OptimismRegisterInstance: {
-      network: "optimism",
-      address: factory({
-        address: "0x3d77596beb0f130a4415df3D2D8232B3d3D31e44",
-        event: getAbiItem({
-          abi: ServiceRegistryABI,
-          name: "RegisterInstance",
-        }),
-        parameter: "agentInstance",
-      }),
-      startBlock: 116423039,
     },
     BaseRegisterInstance: {
       network: "base",
@@ -120,29 +68,11 @@ export default createConfig({
       address: "0x48b6af7B12C71f09e2fC8aF4855De4Ff54e775cA",
       startBlock: 15178299,
     },
-    PolygonRegistry: {
-      network: "polygon",
-      abi: ServiceRegistryABI,
-      address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-      startBlock: 41783952,
-    },
     GnosisRegistry: {
       network: "gnosis",
       abi: ServiceRegistryABI,
       address: "0x9338b5153AE39BB89f50468E608eD9d764B755fD",
       startBlock: 27871084,
-    },
-    ArbitrumRegistry: {
-      network: "arbitrum",
-      abi: ServiceRegistryABI,
-      address: "0xE3607b00E75f6405248323A9417ff6b39B244b50",
-      startBlock: 174008819,
-    },
-    OptimismRegistry: {
-      network: "optimism",
-      abi: ServiceRegistryABI,
-      address: "0x3d77596beb0f130a4415df3D2D8232B3d3D31e44",
-      startBlock: 116423039,
     },
     BaseRegistry: {
       network: "base",
