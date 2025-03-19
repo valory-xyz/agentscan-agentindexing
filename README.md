@@ -95,6 +95,7 @@ For production deployment using Docker, you'll need to configure the following e
 | ABI_DATABASE_URL    | ABI PostgreSQL database URL   | No       | -          |
 | REDIS_URL           | Redis connection URL          | No       | -          |
 | OPENAI_API_KEY      | OpenAI API key for embeddings | No\*     | -          |
+| SCHEMA_ID           | Schema ID for production      | Yes      | -          |
 
 \* Required if ABI_DATABASE_URL is set
 
@@ -120,6 +121,7 @@ docker run -d \
   -e ABI_DATABASE_URL=your_abi_database_url \
   -e REDIS_URL=your_redis_url \
   -e OPENAI_API_KEY=your_openai_key \
+  -e SCHEMA_ID=your_schema_id \
   agentscan-indexer
 ```
 

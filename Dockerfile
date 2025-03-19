@@ -16,6 +16,7 @@ COPY . .
 
 # Set environment variables
 ENV NODE_ENV=production
+ENV PONDER_TELEMETRY_DISABLED=true
 
 # Expose the port that Ponder runs on
 EXPOSE 42069
