@@ -20,4 +20,4 @@ jobs:
       - name: Build version tagged images
         run: |
           IMAGE_NAME=$(basename $GITHUB_REPOSITORY)
-          docker build -t ${{secrets.DOCKER_USER}}/$IMAGE_NAME-database:${{ github.event.release.tag_name }} . --push
+          docker build -t ${{secrets.DOCKER_USER}}/$IMAGE_NAME-database:${{ github.event.release.tag_name }} -f database.Dockerfile . --push
