@@ -26,4 +26,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:42069/health || exit 1
 
 # Run database setup script if ABI_DATABASE_URL is provided and start the application
-CMD ["/bin/bash", "-c", "npm run setup-db && npm run start"] 
+############################################
+# WARNING: only working with npm run dev mode
+############################################
+CMD ["/bin/bash", "-c", "npm run setup-db && npm run dev"] 

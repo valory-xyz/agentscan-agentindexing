@@ -46,7 +46,7 @@ const createDefaultService = (
 
 ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
   const agentId = event.args.unitId.toString();
-  console.log(`Handling MainnetAgentRegistry:CreateUnit for agent ${agentId}`);
+  console.log(`[DEBUG] Processing MainnetAgentRegistry:CreateUnit for agent ${agentId} at block ${event.block.number}`);
   const [metadataJson] = await Promise.all([
     fetchMetadata(event.args.unitHash, agentId, "agent"),
   ]);
@@ -118,7 +118,7 @@ ponder.on(`MainnetAgentRegistry:CreateUnit`, async ({ event, context }) => {
 
 ponder.on(`MainnetAgentRegistry:Transfer`, async ({ event, context }) => {
   const agentId = event.args.id.toString();
-  console.log(`Handling MainnetAgentRegistry:Transfer for agent ${agentId}`);
+  console.log(`[DEBUG] Processing MainnetAgentRegistry:Transfer for agent ${agentId} at block ${event.block.number}`);
 
   try {
     await context.db
@@ -156,6 +156,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
+    console.log(`[DEBUG] Processing ${contractName}:RegisterInstance for service ${serviceId} at block ${event.block.number}`);
     const agentId = event.args.agentId.toString();
     const agentInstanceId = event.args.agentInstance.toLowerCase();
 
@@ -243,12 +244,11 @@ CONTRACT_NAMES.forEach((contractName) => {
 
   ponder.on(`${contractName}:CreateService`, async ({ event, context }) => {
     const chain = getChainName(contractName);
-
     const serviceId = createChainScopedId(
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
-
+    console.log(`[DEBUG] Processing ${contractName}:CreateService for service ${serviceId} at block ${event.block.number}`);
     const metadataJson = await fetchMetadata(
       event.args.configHash,
       serviceId,
@@ -307,7 +307,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
-
+    console.log(`[DEBUG] Processing ${contractName}:DeployService for service ${serviceId} at block ${event.block.number}`);
     try {
       await context.db
         .update(Service, { id: serviceId })
@@ -339,7 +339,7 @@ CONTRACT_NAMES.forEach((contractName) => {
         chain,
         event.args.serviceId.toString().toLowerCase()
       );
-
+      console.log(`[DEBUG] Processing ${contractName}:CreateMultisigWithAgents for service ${serviceId} at block ${event.block.number}`);
       try {
         await context.db
           .update(Service, { id: serviceId })
@@ -373,7 +373,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
-
+    console.log(`[DEBUG] Processing ${contractName}:TerminateService for service ${serviceId} at block ${event.block.number}`);
     try {
       await context.db
         .update(Service, { id: serviceId })
@@ -406,7 +406,7 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.serviceId.toString().toLowerCase()
     );
-
+    console.log(`[DEBUG] Processing ${contractName}:UpdateService for service ${serviceId} at block ${event.block.number}`);
     try {
       const metadataJson = await fetchMetadata(
         event.args.configHash,
@@ -457,8 +457,8 @@ CONTRACT_NAMES.forEach((contractName) => {
       chain,
       event.args.id.toString().toLowerCase()
     );
+    console.log(`[DEBUG] Processing ${contractName}:Transfer for service ${serviceId} at block ${event.block.number}, from ${event.args.from} to ${event.args.to}`);
 
-    console.log(`Handling ${contractName}:Transfer for service ${serviceId}`);
     console.log(
       `New owner: ${event.args.to}, Previous owner: ${event.args.from}`
     );
@@ -467,8 +467,10 @@ CONTRACT_NAMES.forEach((contractName) => {
       await context.db
         .update(Service, { id: serviceId })
         .set({ owner: event.args.to.toLowerCase() });
+      console.log(`[DEBUG] Successfully updated owner for service ${serviceId}`);
     } catch (e) {
       console.error(`Error updating service ${serviceId} owner:`, e);
+      console.log(`[DEBUG] Attempting fallback creation for service ${serviceId}`);
       try {
         const defaultService = createDefaultService(
           serviceId,
@@ -486,7 +488,7 @@ CONTRACT_NAMES.forEach((contractName) => {
             owner: event.args.to.toLowerCase(),
           });
       } catch (insertError) {
-        console.error("Error in Transfer fallback handler:", insertError);
+        console.error(`[DEBUG] Error in Transfer fallback handler for ${serviceId}:`, insertError);
       }
     }
   });
