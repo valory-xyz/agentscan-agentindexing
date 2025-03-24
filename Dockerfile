@@ -29,4 +29,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 ############################################
 # WARNING: only working with npm run dev mode
 ############################################
-CMD ["/bin/bash", "-c", "npm run setup-db && npm run dev"] 
+CMD ["/bin/bash", "-c", "npm run setup-db && npm run start"] 

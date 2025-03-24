@@ -1,4 +1,4 @@
-import { createConfig, factory, loadBalance } from "ponder";
+import { createConfig, factory, loadBalance, rateLimit } from "ponder";
 import { getAbiItem, http, parseAbiItem } from "viem";
 
 import { ServiceRegistryABI } from "./abis/ServiceRegistryABI";
@@ -9,17 +9,23 @@ export default createConfig({
   networks: {
     mainnet: {
       chainId: 1,
-      transport: http(process.env.PONDER_RPC_URL_1),
+      transport: rateLimit(http(process.env.PONDER_RPC_URL_1), {
+        requestsPerSecond: 25,
+      }),
       pollingInterval: 2_000,
     },
     gnosis: {
       chainId: 100,
-      transport: loadBalance([http(process.env.PONDER_RPC_URL_100)]),
+      transport: rateLimit(http(process.env.PONDER_RPC_URL_100), {
+        requestsPerSecond: 25,
+      }),
       pollingInterval: 2_000,
     },
     base: {
       chainId: 8453,
-      transport: http(process.env.PONDER_RPC_URL_8453),
+      transport: rateLimit(http(process.env.PONDER_RPC_URL_8453), {
+        requestsPerSecond: 25,
+      }),
       pollingInterval: 2_000,
     },
   },
