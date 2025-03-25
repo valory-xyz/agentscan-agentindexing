@@ -5,7 +5,7 @@ import {
 } from "../utils";
 import { processTransaction } from "../utils/transactionHandling";
 
-const needsAbiTransaction = !process.env.ABI_DATABASE_URL
+const needsAbiTransaction = !!process.env.ABI_DATABASE_URL;
 
 REGISTER_NAMES.forEach((contractName) => {
   ponder.on(`${contractName}:transaction:from`, ({ event, context }: any) => {
